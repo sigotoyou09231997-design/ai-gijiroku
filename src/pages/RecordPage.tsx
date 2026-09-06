@@ -1,27 +1,69 @@
-import { useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2, CircleDot, ListTodo, Loader2, MessageCircleQuestion, Mic, RefreshCw, Square, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  Loader2,
+  MessageCircleQuestion,
+  Mic,
+  RefreshCw,
+  Square,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { SESSION_LABELS, useLiveSession } from "../hooks/useLiveSession";
 import { formatTime } from "../lib/format";
 import { speakerLabel } from "../lib/types";
+import type { Speaker } from "../lib/types";
+
+/** 経過時間を mm:ss で。会議の長さの見当が付くように。 */
+function useElapsed(active: boolean): string {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setSeconds(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      setSeconds(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function speakerTone(speaker: Speaker | undefined): { chip: string; bar: string } {
+  if (speaker === "self") return { chip: "bg-self-soft text-self", bar: "bg-self" };
+  if (speaker === "other") return { chip: "bg-other-soft text-other", bar: "bg-other" };
+  return { chip: "bg-line text-muted", bar: "bg-faint" };
+}
 
 export default function RecordPage() {
   const navigate = useNavigate();
   const live = useLiveSession();
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { segments, interim } = live;
+  const interimEntries = Object.entries(interim).filter(([, text]) => Boolean(text));
+  const recording = live.status === "recording";
+  const finishing = live.status === "finishing";
+  const elapsed = useElapsed(recording);
 
-  // 新しい発話が来たら下まで送る（会話中は最新だけ見ていられるように）。
+  // 新しい発話が来たら下まで送る（会議中は最新だけ見ていられるように）。
   useEffect(() => {
     const element = transcriptRef.current;
     if (!element) return;
     element.scrollTop = element.scrollHeight;
   }, [segments, interim]);
 
-  const interimEntries = Object.entries(live.interim).filter(([, text]) => Boolean(text));
-  const recording = live.status === "recording";
-  const finishing = live.status === "finishing";
+  // 設定は一度決めれば触らない。まだ決めていないときだけ開いた状態で始める。
+  useEffect(() => {
+    if (live.canSeparateSpeakers && !live.sourceChoice.otherDeviceId) setSettingsOpen(true);
+  }, [live.canSeparateSpeakers, live.sourceChoice.otherDeviceId]);
 
   async function handleFinish() {
     const id = await live.finish();
@@ -30,270 +72,338 @@ export default function RecordPage() {
 
   const decisions = live.actions.filter((action) => action.kind === "decision");
   const todos = live.actions.filter((action) => action.kind === "todo");
+  // 会議中は最新のカンペが一番大事なので、新しいものを上に出す。
+  const questions = [...live.questions].reverse();
+
+  const deviceName = (id: string, fallback: string) =>
+    live.devices.find((d) => d.deviceId === id)?.label ?? fallback;
 
   return (
     <div className="space-y-4">
       {!live.speechAvailable && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <AlertTriangle size={18} className="mt-0.5 shrink-0" aria-hidden />
+        <div className="flex items-start gap-3 rounded-2xl border border-live/30 bg-live/5 p-4 text-sm text-ink">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-live" aria-hidden />
           <div>
             <p className="font-semibold">この環境では音声認識を使えません</p>
-            <p className="mt-1">{live.speechUnavailableReason}</p>
+            <p className="mt-1 text-muted">{live.speechUnavailableReason}</p>
           </div>
         </div>
       )}
 
-      <section className="rounded-xl border border-gray-200 bg-white p-4">
+      {/* ── 操作バー ───────────────────────────────── */}
+      <section className="rounded-2xl border border-line bg-surface p-4 shadow-card">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm text-gray-600" htmlFor="session-label">
-            種類
-          </label>
-          <input
-            id="session-label"
-            list="session-label-presets"
-            className="w-44 rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-            value={live.label}
-            onChange={(event) => live.setLabel(event.target.value)}
-            disabled={recording || finishing}
-          />
-          <datalist id="session-label-presets">
-            {SESSION_LABELS.map((preset) => (
-              <option key={preset} value={preset} />
-            ))}
-          </datalist>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-muted" htmlFor="session-label">
+              種類
+            </label>
+            <input
+              id="session-label"
+              list="session-label-presets"
+              className="w-36 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm text-ink outline-none transition-colors focus:border-self disabled:opacity-60"
+              value={live.label}
+              onChange={(event) => live.setLabel(event.target.value)}
+              disabled={recording || finishing}
+            />
+            <datalist id="session-label-presets">
+              {SESSION_LABELS.map((preset) => (
+                <option key={preset} value={preset} />
+              ))}
+            </datalist>
+          </div>
+
+          {recording && (
+            <div className="flex items-center gap-3 rounded-full bg-live/10 px-3 py-1.5">
+              <span className="relative flex h-2 w-2" aria-hidden>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-live opacity-70" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-live" />
+              </span>
+              <span className="text-xs font-semibold text-live">録音中</span>
+              <span className="font-mono text-xs tabular-nums text-live/80">{elapsed}</span>
+            </div>
+          )}
+
+          {live.analyzing && (
+            <span className="flex items-center gap-1.5 text-xs text-muted">
+              <Loader2 size={13} className="animate-spin" aria-hidden />
+              AIが確認中
+            </span>
+          )}
 
           <div className="grow" />
 
-          {!recording && (
+          <span className="text-xs text-faint">{live.speechLabel}</span>
+
+          {!recording ? (
             <button
               type="button"
-              className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+              className="flex items-center gap-2 rounded-xl bg-self px-5 py-2.5 text-sm font-semibold text-white shadow-card transition-all hover:shadow-lift disabled:cursor-not-allowed disabled:bg-faint disabled:shadow-none"
               onClick={live.start}
               disabled={!live.speechAvailable || finishing}
             >
               <Mic size={16} aria-hidden />
               開始
             </button>
-          )}
-
-          {recording && (
+          ) : (
             <button
               type="button"
-              className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-gray-300"
+              className="flex items-center gap-2 rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-surface shadow-card transition-all hover:shadow-lift disabled:cursor-not-allowed disabled:opacity-60"
               onClick={() => void handleFinish()}
               disabled={finishing}
             >
-              {finishing ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Square size={16} aria-hidden />}
+              {finishing ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden />
+              ) : (
+                <Square size={15} aria-hidden />
+              )}
               {finishing ? "まとめています…" : "終了して保存"}
             </button>
           )}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-          {recording && live.micActive && (
-            <span className="flex items-center gap-1 text-rose-600">
-              <CircleDot size={14} className="animate-pulse" aria-hidden />
-              録音中
-            </span>
-          )}
-          {recording && !live.micActive && (
-            <span className="flex items-center gap-1 text-amber-700">
-              <AlertTriangle size={14} aria-hidden />
-              音声認識が止まっています（「終了して保存」でここまでを残せます）
-            </span>
-          )}
-          <span className="text-gray-400">{live.speechLabel}</span>
-          {live.analyzing && (
-            <span className="flex items-center gap-1">
-              <Loader2 size={14} className="animate-spin" aria-hidden />
-              AIが確認中
-            </span>
-          )}
-        </div>
-
+        {recording && !live.micActive && (
+          <p className="mt-3 flex items-center gap-2 rounded-lg bg-live/10 px-3 py-2 text-sm text-live">
+            <AlertTriangle size={14} aria-hidden />
+            音声認識が止まっています（「終了して保存」でここまでを残せます）
+          </p>
+        )}
         {live.speechError && (
-          <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{live.speechError}</p>
+          <p className="mt-3 rounded-lg bg-live/10 px-3 py-2 text-sm text-live">{live.speechError}</p>
         )}
         {live.aiError && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="mt-2 rounded-lg bg-line px-3 py-2 text-sm text-muted">
             {live.aiError}（文字起こしと保存は続きます）
           </p>
         )}
       </section>
 
+      {/* ── 音源の設定（普段は畳んでおく） ─────────────── */}
       {live.canSeparateSpeakers && (
-        <section className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="flex items-center gap-2">
-            <Users size={16} className="text-gray-500" aria-hidden />
-            <h2 className="text-sm font-semibold text-gray-700">どの音を、誰の声として聞くか</h2>
-            <div className="grow" />
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
-              onClick={() => void live.refreshDevices()}
-              disabled={recording}
-            >
-              <RefreshCw size={12} aria-hidden />
-              一覧を更新
-            </button>
-          </div>
-
-          <p className="mt-2 text-xs leading-relaxed text-gray-500">
-            2つを別々に聞き取るので、どちらが喋ったのかが確実に分かります。相手の声は、Zoom
-            などの音を仮想オーディオ（BlackHole など）で受けた入力を選んでください。
-          </p>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-semibold text-indigo-700">自分の声（マイク）</span>
-              <select
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                value={live.sourceChoice.selfDeviceId}
-                disabled={recording || finishing}
-                onChange={(event) =>
-                  live.setSourceChoice({ ...live.sourceChoice, selfDeviceId: event.target.value })
-                }
-              >
-                <option value="">既定のマイク</option>
-                {live.devices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-semibold text-emerald-700">相手の声（通話の音）</span>
-              <select
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
-                value={live.sourceChoice.otherDeviceId}
-                disabled={recording || finishing}
-                onChange={(event) =>
-                  live.setSourceChoice({ ...live.sourceChoice, otherDeviceId: event.target.value })
-                }
-              >
-                <option value="">聞かない（自分の声だけ）</option>
-                {live.devices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          {live.sourceChoice.selfDeviceId !== "" &&
-            live.sourceChoice.selfDeviceId === live.sourceChoice.otherDeviceId && (
-              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                同じ入力を両方に選んでいます。これでは話者を分けられません。別々のものを選んでください。
-              </p>
+        <section className="overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-raised"
+            onClick={() => setSettingsOpen((open) => !open)}
+            aria-expanded={settingsOpen}
+          >
+            <Users size={15} className="text-muted" aria-hidden />
+            <span className="text-sm font-semibold">どの音を、誰の声として聞くか</span>
+            {!settingsOpen && (
+              <span className="ml-1 truncate text-xs text-faint">
+                自分 = {deviceName(live.sourceChoice.selfDeviceId, "既定のマイク")} ／ 相手 ={" "}
+                {deviceName(live.sourceChoice.otherDeviceId, "聞かない")}
+              </span>
             )}
+            <div className="grow" />
+            <ChevronDown
+              size={16}
+              className={`shrink-0 text-muted transition-transform duration-200 ${settingsOpen ? "rotate-180" : ""}`}
+              aria-hidden
+            />
+          </button>
+
+          {settingsOpen && (
+            <div className="border-t border-line px-4 pb-4 pt-3">
+              <div className="flex items-start gap-2">
+                <p className="text-xs leading-relaxed text-muted">
+                  2つを別々に聞き取るので、どちらが喋ったのかが確実に分かります。相手の声は、Zoom
+                  などの音を仮想オーディオ（BlackHole など）で受けた入力を選んでください。
+                </p>
+                <button
+                  type="button"
+                  className="flex shrink-0 items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-muted transition-colors hover:bg-raised disabled:opacity-50"
+                  onClick={() => void live.refreshDevices()}
+                  disabled={recording}
+                >
+                  <RefreshCw size={11} aria-hidden />
+                  一覧を更新
+                </button>
+              </div>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    { key: "self" as const, title: "自分の声（マイク）", empty: "既定のマイク" },
+                    { key: "other" as const, title: "相手の声（通話の音）", empty: "聞かない（自分の声だけ）" },
+                  ]
+                ).map(({ key, title, empty }) => (
+                  <label key={key} className="block">
+                    <span
+                      className={`flex items-center gap-1.5 text-xs font-semibold ${
+                        key === "self" ? "text-self" : "text-other"
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${key === "self" ? "bg-self" : "bg-other"}`}
+                        aria-hidden
+                      />
+                      {title}
+                    </span>
+                    <select
+                      className="mt-1.5 w-full rounded-lg border border-line bg-raised px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-self disabled:opacity-60"
+                      value={key === "self" ? live.sourceChoice.selfDeviceId : live.sourceChoice.otherDeviceId}
+                      disabled={recording || finishing}
+                      onChange={(event) =>
+                        live.setSourceChoice(
+                          key === "self"
+                            ? { ...live.sourceChoice, selfDeviceId: event.target.value }
+                            : { ...live.sourceChoice, otherDeviceId: event.target.value },
+                        )
+                      }
+                    >
+                      <option value="">{empty}</option>
+                      {live.devices.map((device) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+
+              {live.sourceChoice.selfDeviceId !== "" &&
+                live.sourceChoice.selfDeviceId === live.sourceChoice.otherDeviceId && (
+                  <p className="mt-3 rounded-lg bg-live/10 px-3 py-2 text-sm text-live">
+                    同じ入力を両方に選んでいます。これでは話者を分けられません。別々のものを選んでください。
+                  </p>
+                )}
+            </div>
+          )}
         </section>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-xl border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-700">文字起こし</h2>
+      {/* ── 本体：カンペを主役に、文字起こしを脇に ───────── */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        {/* 文字起こし */}
+        <section className="flex flex-col rounded-2xl border border-line bg-surface shadow-card">
+          <h2 className="border-b border-line px-4 py-3 text-sm font-semibold">文字起こし</h2>
           <div
             ref={transcriptRef}
-            className="mt-3 h-80 space-y-2 overflow-y-auto rounded-lg bg-gray-50 p-3 text-sm leading-relaxed"
+            className="h-[26rem] space-y-2.5 overflow-y-auto px-4 py-3 text-sm leading-relaxed"
           >
             {segments.length === 0 && interimEntries.length === 0 && (
-              <p className="text-gray-400">「開始」を押すと、話した内容がここに流れます。</p>
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                <Mic size={22} className="text-faint" aria-hidden />
+                <p className="text-sm text-faint">
+                  「開始」を押すと、
+                  <br />
+                  話した内容がここに流れます
+                </p>
+              </div>
             )}
+
             {segments.map((segment) => {
               const who = speakerLabel(segment.speaker);
+              const tone = speakerTone(segment.speaker);
               return (
-                <p key={segment.id} className="text-gray-800">
-                  <span className="mr-2 text-xs text-gray-400">{formatTime(segment.at)}</span>
-                  {who && (
-                    <span
-                      className={`mr-2 rounded px-1.5 py-0.5 text-xs font-semibold ${
-                        segment.speaker === "self"
-                          ? "bg-indigo-100 text-indigo-700"
-                          : "bg-emerald-100 text-emerald-700"
-                      }`}
-                    >
-                      {who}
-                    </span>
-                  )}
-                  {segment.text}
-                </p>
+                <div key={segment.id} className="enter flex gap-2.5">
+                  <span className={`mt-1 w-0.5 shrink-0 rounded-full ${tone.bar}`} aria-hidden />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      {who && (
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${tone.chip}`}>
+                          {who}
+                        </span>
+                      )}
+                      <span className="font-mono text-[11px] tabular-nums text-faint">
+                        {formatTime(segment.at)}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-ink">{segment.text}</p>
+                  </div>
+                </div>
               );
             })}
-            {interimEntries.map(([speaker, text]) => (
-              <p key={speaker} className="text-gray-400">
-                {speakerLabel(speaker as never) && (
-                  <span className="mr-2 text-xs">{speakerLabel(speaker as never)}</span>
-                )}
-                {text}
-              </p>
-            ))}
+
+            {interimEntries.map(([speaker, text]) => {
+              const who = speakerLabel(speaker as Speaker);
+              const tone = speakerTone(speaker as Speaker);
+              return (
+                <div key={speaker} className="flex gap-2.5 opacity-60">
+                  <span className={`mt-1 w-0.5 shrink-0 rounded-full ${tone.bar}`} aria-hidden />
+                  <div className="min-w-0">
+                    {who && <span className="text-[11px] font-semibold text-faint">{who}</span>}
+                    <p className="mt-0.5 text-muted">{text}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
 
+        {/* 質問と回答案（カンペ） */}
         <div className="space-y-4">
-          <section className="rounded-xl border border-gray-200 bg-white p-4">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-              <MessageCircleQuestion size={16} aria-hidden />
+          <section className="rounded-2xl border border-self/25 bg-surface shadow-card">
+            <h2 className="flex items-center gap-2 border-b border-line px-4 py-3 text-sm font-semibold">
+              <MessageCircleQuestion size={16} className="text-self" aria-hidden />
               あなたへの質問と回答案
-            </h2>
-            <div className="mt-3 space-y-3">
-              {live.questions.length === 0 && (
-                <p className="text-sm text-gray-400">質問が出てくると、ここに回答案（カンペ）が並びます。</p>
+              {questions.length > 0 && (
+                <span className="rounded-full bg-self-soft px-2 py-0.5 text-[11px] font-semibold text-self">
+                  {questions.length}
+                </span>
               )}
-              {live.questions.map((item) => (
-                <article key={item.id} className="rounded-lg border border-indigo-100 bg-indigo-50 p-3">
-                  <p className="text-sm font-semibold text-indigo-900">{item.question}</p>
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-gray-800">{item.answer}</p>
-                  <p className="mt-1 text-xs text-indigo-500">{formatTime(item.at)}</p>
+            </h2>
+
+            <div className="max-h-[26rem] space-y-3 overflow-y-auto px-4 py-3">
+              {questions.length === 0 && (
+                <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+                  <Sparkles size={20} className="text-faint" aria-hidden />
+                  <p className="text-sm text-faint">
+                    相手から質問が出ると、
+                    <br />
+                    ここに読み上げられる回答案が並びます
+                  </p>
+                </div>
+              )}
+
+              {questions.map((item, index) => (
+                <article
+                  key={item.id}
+                  className={`enter rounded-xl border p-3.5 ${
+                    index === 0 ? "border-self/40 bg-self-soft" : "border-line bg-raised"
+                  }`}
+                >
+                  <p className="text-[13px] font-bold leading-snug text-self">{item.question}</p>
+                  <p className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
+                    {item.answer}
+                  </p>
+                  <p className="mt-2 font-mono text-[11px] tabular-nums text-faint">
+                    {formatTime(item.at)}
+                  </p>
                 </article>
               ))}
             </div>
           </section>
 
-          <section className="rounded-xl border border-gray-200 bg-white p-4">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-              <ListTodo size={16} aria-hidden />
-              決定事項・宿題事項
-            </h2>
-            <div className="mt-3 space-y-4">
-              <div>
-                <h3 className="flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                  <CheckCircle2 size={14} aria-hidden />
-                  決まったこと
-                </h3>
-                <ul className="mt-2 space-y-1 text-sm text-gray-800">
-                  {decisions.length === 0 && <li className="text-gray-400">まだありません</li>}
-                  {decisions.map((item) => (
-                    <li key={item.id} className="rounded-lg bg-emerald-50 px-3 py-2">
-                      {item.text}
-                      {(item.owner || item.due) && (
-                        <span className="ml-2 text-xs text-emerald-700">
-                          {[item.owner, item.due].filter(Boolean).join(" / ")}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h3 className="text-xs font-semibold text-sky-700">やること</h3>
-                <ul className="mt-2 space-y-1 text-sm text-gray-800">
-                  {todos.length === 0 && <li className="text-gray-400">まだありません</li>}
-                  {todos.map((item) => (
-                    <li key={item.id} className="rounded-lg bg-sky-50 px-3 py-2">
-                      {item.text}
-                      {(item.owner || item.due) && (
-                        <span className="ml-2 text-xs text-sky-700">
-                          {[item.owner, item.due].filter(Boolean).join(" / ")}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+          {/* 決定事項・宿題事項 */}
+          <section className="rounded-2xl border border-line bg-surface p-4 shadow-card">
+            <h2 className="text-sm font-semibold">決定事項・宿題事項</h2>
+
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              {(
+                [
+                  { title: "決まったこと", items: decisions, tone: "text-other", soft: "bg-other-soft" },
+                  { title: "やること", items: todos, tone: "text-self", soft: "bg-self-soft" },
+                ] as const
+              ).map(({ title, items, tone, soft }) => (
+                <div key={title}>
+                  <h3 className={`text-xs font-semibold ${tone}`}>{title}</h3>
+                  <ul className="mt-2 space-y-1.5 text-sm">
+                    {items.length === 0 && <li className="text-faint">まだありません</li>}
+                    {items.map((item) => (
+                      <li key={item.id} className={`enter rounded-lg px-3 py-2 text-ink ${soft}`}>
+                        {item.text}
+                        {(item.owner || item.due) && (
+                          <span className="mt-0.5 block text-xs text-muted">
+                            {[item.owner, item.due].filter(Boolean).join(" / ")}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           </section>
         </div>
