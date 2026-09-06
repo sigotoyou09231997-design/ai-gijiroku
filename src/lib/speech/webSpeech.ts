@@ -51,6 +51,21 @@ function getCtor(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/**
+ * iPhone・iPad か。
+ *
+ * iOSでは、Safariに限らずどのブラウザ（Chrome・Edge含む）もSafari本体のエンジンを
+ * 使う決まりになっており、Web Speech API はそのエンジンに載っていない。
+ * 「別のブラウザで」という案内は、iOSでは的外れ（Androidやパソコンなら効く）になるため、
+ * 判定してメッセージを書き分ける。
+ */
+function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return true;
+  // iPadOS 13+ は "MacIntel" を名乗るので、タッチ対応も合わせて見る。
+  return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+}
+
 /** 続けても直らない種類の失敗か。無音・音声なしは長い会話では普通に起きるので止めない。 */
 export function isFatalSpeechError(code: string): boolean {
   return code !== "no-speech" && code !== "aborted" && code !== "audio-capture-timeout";
@@ -157,8 +172,9 @@ export const webSpeechProvider: SpeechProvider = {
         label: "ブラウザ標準の音声認識",
         available: false,
         supportsMultipleSources: false,
-        reason:
-          "このブラウザは音声認識（Web Speech API）に対応していません。Google Chrome か Microsoft Edge で開いてください。",
+        reason: isIOS()
+          ? "iPhone/iPadはブラウザの種類によらず音声認識（Web Speech API）に対応していません。Androidのスマホかパソコンでお使いください。"
+          : "このブラウザは音声認識（Web Speech API）に対応していません。Google Chrome か Microsoft Edge で開いてください。",
       };
     }
     if (!window.isSecureContext) {
