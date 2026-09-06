@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { deleteSession, loadSession } from "../lib/db";
 import { formatDateTime, formatDuration, formatTime } from "../lib/format";
 import { generateSummary } from "../lib/sessionSummary";
+import { speakerLabel } from "../lib/types";
 
 function Bullets({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
@@ -154,12 +155,27 @@ export default function SessionDetailPage() {
       <section className="rounded-xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold text-gray-700">文字起こし全文</h2>
         <div className="mt-3 max-h-96 space-y-1 overflow-y-auto rounded-lg bg-gray-50 p-3 text-sm leading-relaxed">
-          {session.segments.map((segment) => (
-            <p key={segment.id} className="text-gray-800">
-              <span className="mr-2 text-xs text-gray-400">{formatTime(segment.at)}</span>
-              {segment.text}
-            </p>
-          ))}
+          {session.segments.map((segment) => {
+            // 誰の声か分かっているぶんには札を出す。録音中の画面と同じ色分けにする。
+            const who = speakerLabel(segment.speaker);
+            return (
+              <p key={segment.id} className="text-gray-800">
+                <span className="mr-2 text-xs text-gray-400">{formatTime(segment.at)}</span>
+                {who && (
+                  <span
+                    className={`mr-2 rounded px-1.5 py-0.5 text-xs font-semibold ${
+                      segment.speaker === "self"
+                        ? "bg-indigo-100 text-indigo-700"
+                        : "bg-emerald-100 text-emerald-700"
+                    }`}
+                  >
+                    {who}
+                  </span>
+                )}
+                {segment.text}
+              </p>
+            );
+          })}
         </div>
       </section>
     </div>
