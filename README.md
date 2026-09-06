@@ -25,10 +25,11 @@
   プロバイダを1つ足して `getSpeechProvider()` の選び方を変える。
   質問検知・回答案生成・要約生成・保存・画面には手を入れなくて済む形にしてある。
 
-## 話者を分けて聞く（Azure を設定したとき）
+## 話者を分けて聞く（Deepgram / Azure を設定したとき）
 
-Azure のキーがサーバー側に設定されていると、音声認識が Azure に切り替わり、
-**音源を2本、別々に聞き取る**。
+音声認識のキーがサーバー側に設定されていると、そちらに切り替わり、
+**音源を2本、別々に聞き取る**。Deepgram を優先し、無ければ Azure、
+どちらも無ければブラウザ標準に落ちる。
 
 | 話者 | 拾う音 |
 |---|---|
@@ -54,13 +55,16 @@ macOS なら「複数出力装置」で イヤホン＋BlackHole の両方へ出
 ブラウザから Anthropic のキーを直接使わないよう、`netlify/functions/analyze.ts` と
 `netlify/functions/summarize.ts` を経由する。会話の中身はサーバーに保存しない（ログにも出さない）。
 
-- **本番（Netlify）** … サイトの環境変数に次の3つを設定する。**これは人（本人）が行う。**
+- **本番（Netlify）** … サイトの環境変数に次を設定する。**これは人（本人）が行う。**
   - `ANTHROPIC_API_KEY` … 質問検知・回答案・要約
-  - `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION` … 音声認識（未設定ならブラウザ標準に落ちる）
+  - `DEEPGRAM_API_KEY` … 音声認識（未設定ならブラウザ標準に落ちる）
+  - `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION` … Deepgram の代わりに Azure を使うとき
 - **手元** … `.env.example` を `.env` にコピーしてキーを入れ、`npx netlify dev` で起動する。
 
-Azure の購読キーはブラウザに置かない。`netlify/functions/speechToken.ts` が
-キーと引き換えに10分だけ有効な合鍵を発行し、画面はそれだけを使う（切れる前に取り直す）。
+音声認識の購読キーはブラウザに置かない。`netlify/functions/speechToken.ts` が
+キーと引き換えに期限付きの合鍵を発行し、画面はそれだけを使う（切れる前に取り直す）。
+ブラウザは WebSocket に独自ヘッダを付けられないため、Deepgram へはその合鍵を
+副プロトコル（Sec-WebSocket-Protocol）に載せて渡している。
 
 キーが未設定のあいだも、文字起こしと保存は動く（質問検知・要約のところだけ
 「APIキーが未設定です」と出る）。

@@ -1,0 +1,276 @@
+import type {
+  SpeechCreateOptions,
+  SpeechHandlers,
+  SpeechProvider,
+  SpeechProviderInfo,
+  SpeechRecognizer,
+  SpeechSource,
+} from "./types";
+
+/**
+ * Deepgram による音声認識。
+ *
+ * Web Speech API と決定的に違うのは、**音源を指定して聞ける**こと。
+ * 自分のマイクと、相手の声（Zoom の音を仮想デバイス経由で受けたもの）を
+ * 別々の接続で認識するので、「誰が喋ったか」が推測ではなく事実として分かる。
+ *
+ * 購読キーはブラウザに置かない。netlify/functions/speechToken から
+ * 期限付きの合鍵をもらって使い、切れる前に取り直す。
+ */
+
+const TOKEN_URL = "/.netlify/functions/speechToken";
+const LISTEN_URL = "wss://api.deepgram.com/v1/listen";
+/** マイクの音を送る間隔。短いほど反応が早いが、細切れすぎると認識が落ちる。 */
+const CHUNK_MS = 250;
+/** 無音が続くと切られるので、生きていることを伝える間隔。 */
+const KEEPALIVE_MS = 5_000;
+
+interface TokenResponse {
+  provider?: string;
+  token: string;
+  model?: string;
+  expiresInSec?: number;
+}
+
+export class SpeechNotConfiguredError extends Error {}
+
+async function fetchToken(): Promise<TokenResponse> {
+  let response: Response;
+  try {
+    response = await fetch(TOKEN_URL, { method: "POST" });
+  } catch {
+    throw new Error("音声認識のサーバーに接続できませんでした。ネットワークを確認してください。");
+  }
+  if (response.status === 503) {
+    throw new SpeechNotConfiguredError(
+      (await response.text().catch(() => "")) || "音声認識のキーが未設定です。",
+    );
+  }
+  if (!response.ok) {
+    throw new Error((await response.text().catch(() => "")) || "音声認識の合鍵を取得できませんでした。");
+  }
+  const data = (await response.json()) as TokenResponse;
+  if (!data.token) throw new Error("音声認識の合鍵の形式が不正です。");
+  return data;
+}
+
+/** ブラウザが送れる音の形。環境によって使える形が違うので、上から順に試す。 */
+function pickMimeType(): string | undefined {
+  if (typeof MediaRecorder === "undefined") return undefined;
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type));
+}
+
+function listenUrl(lang: string, model: string): string {
+  const params = new URLSearchParams({
+    model,
+    language: lang,
+    // 途中経過も受け取る（画面に薄く出すため）。
+    interim_results: "true",
+    punctuate: "true",
+    smart_format: "true",
+  });
+  return `${LISTEN_URL}?${params.toString()}`;
+}
+
+/** 音源1本ぶん。マイクを掴んで、Deepgram へ流し、結果に話者の札を貼る。 */
+class SourceStream {
+  private ws: WebSocket | null = null;
+  private recorder: MediaRecorder | null = null;
+  private stream: MediaStream | null = null;
+  private keepAlive: ReturnType<typeof setInterval> | null = null;
+  private stopped = false;
+
+  constructor(
+    private readonly source: SpeechSource,
+    private readonly lang: string,
+  ) {}
+
+  async start(token: string, model: string, handlers: SpeechHandlers): Promise<void> {
+    const mimeType = pickMimeType();
+    if (!mimeType) {
+      handlers.onError("このブラウザは音声の送信に対応していません。Chrome か Edge で開いてください。");
+      return;
+    }
+
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: this.source.deviceId ? { deviceId: { exact: this.source.deviceId } } : true,
+      });
+    } catch {
+      handlers.onError(
+        this.source.deviceId
+          ? "選んだ入力デバイスを開けませんでした。抜き差ししていないか、一覧を更新して選び直してください。"
+          : "マイクを開けませんでした。ブラウザの設定でこのサイトのマイクを許可してください。",
+      );
+      return;
+    }
+    if (this.stopped) {
+      this.releaseStream();
+      return;
+    }
+
+    // ブラウザは WebSocket に独自ヘッダを付けられないので、
+    // 副プロトコル（Sec-WebSocket-Protocol）に合鍵を載せる。Deepgram の作法。
+    const ws = new WebSocket(listenUrl(this.lang, model), ["token", token]);
+    this.ws = ws;
+
+    ws.onopen = () => {
+      if (this.stopped) {
+        ws.close();
+        return;
+      }
+      const recorder = new MediaRecorder(this.stream as MediaStream, { mimeType });
+      this.recorder = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) ws.send(event.data);
+      };
+      recorder.start(CHUNK_MS);
+
+      this.keepAlive = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "KeepAlive" }));
+      }, KEEPALIVE_MS);
+    };
+
+    ws.onmessage = (event) => {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(typeof event.data === "string" ? event.data : "");
+      } catch {
+        return;
+      }
+      const message = payload as {
+        type?: string;
+        is_final?: boolean;
+        channel?: { alternatives?: { transcript?: string }[] };
+      };
+      if (message.type && message.type !== "Results") return;
+      const text = message.channel?.alternatives?.[0]?.transcript?.trim();
+      if (!text) return;
+      handlers.onChunk({ text, isFinal: Boolean(message.is_final), speaker: this.source.speaker });
+    };
+
+    ws.onerror = () => {
+      if (!this.stopped) handlers.onError("音声認識との通信でエラーが起きました。");
+    };
+
+    ws.onclose = (event) => {
+      // 1000（正常）と、こちらから閉じたときは黙って終わる。
+      if (this.stopped || event.code === 1000) return;
+      handlers.onError(
+        event.code === 1008 || event.code === 1006
+          ? "音声認識に接続できませんでした。キーの有効期限や残高を確認してください。"
+          : `音声認識の接続が切れました（コード ${event.code}）。`,
+      );
+    };
+  }
+
+  private releaseStream(): void {
+    if (this.stream) {
+      for (const track of this.stream.getTracks()) track.stop();
+      this.stream = null;
+    }
+  }
+
+  stop(): void {
+    this.stopped = true;
+    if (this.keepAlive) {
+      clearInterval(this.keepAlive);
+      this.keepAlive = null;
+    }
+    if (this.recorder && this.recorder.state !== "inactive") {
+      try {
+        this.recorder.stop();
+      } catch {
+        // すでに止まっている場合は何もしない。
+      }
+    }
+    this.recorder = null;
+    if (this.ws) {
+      const ws = this.ws;
+      this.ws = null;
+      if (ws.readyState === WebSocket.OPEN) {
+        // 残りを吐き出してから閉じてもらう。
+        try {
+          ws.send(JSON.stringify({ type: "CloseStream" }));
+        } catch {
+          // 送れなくても、このあと閉じるので問題ない。
+        }
+      }
+      ws.close(1000);
+    }
+    this.releaseStream();
+  }
+}
+
+class DeepgramRecognizer implements SpeechRecognizer {
+  private streams: SourceStream[] = [];
+  private stopped = false;
+
+  constructor(private readonly options: SpeechCreateOptions) {}
+
+  start(handlers: SpeechHandlers): void {
+    this.stopped = false;
+    const wanted: SpeechSource[] =
+      this.options.sources && this.options.sources.length > 0
+        ? this.options.sources
+        : [{ speaker: "unknown" }];
+
+    // 合鍵の取得は非同期。待っているあいだに止められることがあるので、そのときは何も始めない。
+    void (async () => {
+      let issued: TokenResponse;
+      try {
+        issued = await fetchToken();
+      } catch (error) {
+        handlers.onError(error instanceof Error ? error.message : "音声認識を開始できませんでした。");
+        return;
+      }
+      if (this.stopped) return;
+
+      const model = issued.model || "nova-2";
+      this.streams = wanted.map((source) => new SourceStream(source, this.options.lang));
+      // 1本ずつ独立して立ち上げる。片方が失敗しても、もう片方は動かす。
+      await Promise.all(this.streams.map((s) => s.start(issued.token, model, handlers)));
+    })();
+  }
+
+  stop(): void {
+    this.stopped = true;
+    for (const s of this.streams) s.stop();
+    this.streams = [];
+  }
+}
+
+export const deepgramSpeechProvider: SpeechProvider = {
+  id: "deepgram",
+  info(): SpeechProviderInfo {
+    if (typeof window === "undefined") {
+      return {
+        label: "Deepgram",
+        available: false,
+        supportsMultipleSources: false,
+        reason: "ブラウザ以外では使えません。",
+      };
+    }
+    if (!window.isSecureContext) {
+      return {
+        label: "Deepgram",
+        available: false,
+        supportsMultipleSources: false,
+        reason: "https（または localhost）で開いていないため、マイクを使えません。",
+      };
+    }
+    if (typeof MediaRecorder === "undefined") {
+      return {
+        label: "Deepgram",
+        available: false,
+        supportsMultipleSources: false,
+        reason: "このブラウザは音声の送信に対応していません。Chrome か Edge で開いてください。",
+      };
+    }
+    return { label: "Deepgram", available: true, supportsMultipleSources: true };
+  },
+  create(options: SpeechCreateOptions): SpeechRecognizer {
+    return new DeepgramRecognizer(options);
+  },
+};

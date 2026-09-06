@@ -1,4 +1,5 @@
 import { azureSpeechProvider } from "./azureSpeech";
+import { deepgramSpeechProvider } from "./deepgramSpeech";
 import type { SpeechProvider } from "./types";
 import { webSpeechProvider } from "./webSpeech";
 
@@ -16,8 +17,9 @@ export type {
 /**
  * 使う音声認識を1か所で決める。
  *
- * Azure のキーがサーバー側に設定されていれば Azure を使う（音源を話者ごとに分けて聞ける）。
- * 設定されていなければブラウザ標準に落として、実装を止めない。
+ * Deepgram か Azure のキーがサーバー側に設定されていれば、そちらを使う
+ * （どちらも音源を話者ごとに分けて聞ける）。両方とも無ければブラウザ標準に落として、
+ * 実装を止めない。
  * 呼ぶ側はこの2つの関数しか知らないので、他の画面・処理には手を入れなくて済む。
  */
 
@@ -31,7 +33,7 @@ export function getSpeechProvider(): SpeechProvider {
 let probed: Promise<SpeechProvider> | null = null;
 
 /**
- * Azure が使える設定になっているかをサーバーに一度だけ聞いて、使う方を返す。
+ * どの業者のキーが設定されているかをサーバーに一度だけ聞いて、使うものを返す。
  * 聞けなかったときはブラウザ標準に落とす（オフラインでも録音そのものは始められるように）。
  */
 export function resolveSpeechProvider(): Promise<SpeechProvider> {
@@ -40,8 +42,10 @@ export function resolveSpeechProvider(): Promise<SpeechProvider> {
     try {
       const response = await fetch(TOKEN_URL, { method: "GET" });
       if (!response.ok) return webSpeechProvider;
-      const data = (await response.json()) as { configured?: boolean };
-      return data.configured ? azureSpeechProvider : webSpeechProvider;
+      const data = (await response.json()) as { provider?: string | null };
+      if (data.provider === "deepgram") return deepgramSpeechProvider;
+      if (data.provider === "azure") return azureSpeechProvider;
+      return webSpeechProvider;
     } catch {
       return webSpeechProvider;
     }
