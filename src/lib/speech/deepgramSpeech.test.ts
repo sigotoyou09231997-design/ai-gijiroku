@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { audioConstraints, deepgramLanguage } from "./deepgramSpeech";
+import { afterEach, describe, expect, it } from "vitest";
+import { audioConstraints, deepgramLanguage, pickMimeType } from "./deepgramSpeech";
 
 /**
  * ここを間違えると、接続も課金も成立したまま結果だけが空で返る。
@@ -46,5 +46,36 @@ describe("音源ごとの取り方", () => {
 
   it("デバイス未指定なら既定のマイクを使う", () => {
     expect(audioConstraints({ speaker: "self" })).toEqual({});
+  });
+});
+
+describe("送る音の形の選び方", () => {
+  const original = (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+
+  afterEach(() => {
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = original;
+  });
+
+  function stubMediaRecorder(supported: string[]): void {
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = {
+      isTypeSupported: (type: string) => supported.includes(type),
+    };
+  }
+
+  it("Chrome/Edgeなど webm に対応した環境では webm を選ぶ", () => {
+    stubMediaRecorder(["audio/webm;codecs=opus", "audio/webm"]);
+    expect(pickMimeType()).toBe("audio/webm;codecs=opus");
+  });
+
+  it("iPhone（Safari系）は webm/ogg に対応しないので mp4 を選ぶ", () => {
+    // Safariは webm/ogg に一切対応せず、mp4（AAC）だけに対応する。
+    // ここが無いと iPhone では毎回「音声の送信に対応していません」で止まる。
+    stubMediaRecorder(["audio/mp4;codecs=mp4a.40.2", "audio/mp4"]);
+    expect(pickMimeType()).toBe("audio/mp4;codecs=mp4a.40.2");
+  });
+
+  it("どれにも対応していなければ undefined を返す", () => {
+    stubMediaRecorder([]);
+    expect(pickMimeType()).toBeUndefined();
   });
 });
