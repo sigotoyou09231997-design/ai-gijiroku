@@ -299,26 +299,26 @@ export default function RecordPage() {
       )}
 
       {/* ── 本体：カンペが主役、文字起こしは脇の柱 ─────── */}
-      <div className="grid gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         {/* 文字起こし（脇の柱） */}
-        <section className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface/60">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h2 className="eyebrow text-faint">文字起こし</h2>
+        <section className="flex flex-col overflow-hidden rounded-3xl border border-line bg-surface">
+          <div className="flex items-center justify-between border-b border-line px-6 py-4">
+            <h2 className="text-[15px] font-bold tracking-tight">文字起こし</h2>
             {segments.length > 0 && (
               <span className="font-mono text-[11px] tabular-nums text-faint">{segments.length}</span>
             )}
           </div>
 
-          <div ref={transcriptRef} className="h-[34rem] overflow-y-auto px-4 py-3">
+          <div ref={transcriptRef} className="h-[34rem] overflow-y-auto px-6 py-4">
             {segments.length === 0 && interimEntries.length === 0 && (
-              <p className="pt-16 text-center text-[13px] leading-relaxed text-faint">
-                話した内容が
+              <p className="pt-24 text-center text-[15px] leading-[1.9] text-faint">
+                話した内容が、誰の声かの札つきで
                 <br />
                 ここに流れます
               </p>
             )}
 
-            <div className="space-y-3">
+            <div className="space-y-3.5">
               {segments.map((segment) => {
                 const who = speakerLabel(segment.speaker);
                 const tone = speakerTone(segment.speaker);
@@ -328,11 +328,11 @@ export default function RecordPage() {
                       {who && (
                         <span className={`eyebrow ${tone.text}`}>{who}</span>
                       )}
-                      <span className="font-mono text-[10px] tabular-nums text-faint">
+                      <span className="font-mono text-[11px] tabular-nums text-faint">
                         {formatTime(segment.at)}
                       </span>
                     </div>
-                    <p className="mt-1 border-l-2 pl-2.5 text-[13px] leading-[1.7] text-muted"
+                    <p className="mt-1 border-l-2 pl-3 text-[15px] leading-[1.75] text-ink"
                        style={{ borderColor: `rgb(var(${tone.varName}) / 0.5)` }}>
                       {segment.text}
                     </p>
@@ -344,7 +344,7 @@ export default function RecordPage() {
                 const tone = speakerTone(speaker as Speaker);
                 return (
                   <div key={speaker} className="opacity-50">
-                    <p className="border-l-2 pl-2.5 text-[13px] leading-[1.7] text-faint"
+                    <p className="border-l-2 pl-3 text-[15px] leading-[1.75] text-faint"
                        style={{ borderColor: `rgb(var(${tone.varName}) / 0.3)` }}>
                       {text}
                     </p>
@@ -405,7 +405,7 @@ export default function RecordPage() {
                           newest ? "border-self/40 bg-self-soft" : "border-line bg-raised"
                         }`}
                       >
-                        <p className="whitespace-pre-wrap text-[19px] leading-[1.95] tracking-tight text-ink">
+                        <p className="whitespace-pre-wrap text-[18px] leading-[1.9] tracking-tight text-ink">
                           {item.answer}
                         </p>
                       </div>
