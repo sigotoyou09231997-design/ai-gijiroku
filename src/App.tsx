@@ -1,7 +1,20 @@
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import Layout from "./components/Layout";
+import RecordPage from "./pages/RecordPage";
+import SessionDetailPage from "./pages/SessionDetailPage";
+import SessionsPage from "./pages/SessionsPage";
+
 export default function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center text-gray-500">
-      <p>AI議事録ツール — 準備中</p>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<RecordPage />} />
+          <Route path="sessions" element={<SessionsPage />} />
+          <Route path="sessions/:id" element={<SessionDetailPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }

@@ -1,0 +1,173 @@
+/**
+ * セッション終了後に、文字起こし全文から議事録風のまとめ（要点・決定事項・宿題事項）を作る。
+ *
+ * analyze.ts と同じく、ブラウザから Anthropic のキーを直接使わないための中継。
+ * 受け取った会話はここで処理して返すだけで、サーバー側には保存しない（ログにも出さない）。
+ *
+ * 環境変数:
+ *   ANTHROPIC_API_KEY … 必須。未設定のときは 503。
+ *   ANTHROPIC_MODEL   … 任意。既定は claude-sonnet-5。
+ */
+
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const DEFAULT_MODEL = "claude-sonnet-5";
+/** 長い会話でも1回で収まるように、全文が長すぎるときは後ろ側を優先して切る。 */
+const MAX_TRANSCRIPT_CHARS = 40_000;
+
+// analyze.ts と同じ処理を持たせてある。関数どうしでモジュールを共有せず、1本で完結させる方針。
+interface ToolSpec {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+interface AnthropicContentBlock {
+  type: string;
+  name?: string;
+  input?: unknown;
+}
+
+interface AnthropicResponse {
+  content?: AnthropicContentBlock[];
+}
+
+class MissingKeyError extends Error {}
+
+async function callClaude(system: string, userText: string, tool: ToolSpec): Promise<Record<string, unknown>> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new MissingKeyError(
+      "AIのAPIキー（ANTHROPIC_API_KEY）が未設定です。Netlifyの環境変数に設定してください。",
+    );
+  }
+
+  const response = await fetch(ANTHROPIC_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
+      max_tokens: 2048,
+      system,
+      tools: [tool],
+      tool_choice: { type: "tool", name: tool.name },
+      messages: [{ role: "user", content: userText }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`AIの呼び出しに失敗しました（HTTP ${response.status}）。`);
+  }
+
+  const data = (await response.json()) as AnthropicResponse;
+  const block = (data.content ?? []).find((item) => item.type === "tool_use" && item.name === tool.name);
+  const input = block?.input;
+  return input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+}
+
+const SYSTEM = `あなたは議事録を書く担当です。渡されるのは、マイクで拾った会話の文字起こし全文です。
+話者の区別は付いておらず、誤認識も混ざります。読み取れない部分は無理に補わず、落としてください。
+
+議事録として、次の4つを作ります。
+
+- overview … 何の話だったかが1〜3文で分かる短いまとめ
+- points   … 要点。話の流れが追える粒度で、多くても8項目まで
+- decisions … 決まったこと。決まっていない案は入れない
+- todos    … やることになったこと。担当・期限が会話に出ていれば文の中に含める
+
+会話中に拾ってあった決定事項・宿題事項も一緒に渡します。取りこぼさないようにしつつ、
+同じ内容が重なっているものは1つにまとめてください。該当が無い項目は空の配列にします。`;
+
+const TOOL: ToolSpec = {
+  name: "write_minutes",
+  description: "議事録のまとめを書く。",
+  input_schema: {
+    type: "object",
+    properties: {
+      overview: { type: "string", description: "何の話だったかの短いまとめ（1〜3文）" },
+      points: { type: "array", items: { type: "string" }, description: "要点（最大8項目）" },
+      decisions: { type: "array", items: { type: "string" }, description: "決定事項" },
+      todos: { type: "array", items: { type: "string" }, description: "宿題事項" },
+    },
+    required: ["overview", "points", "decisions", "todos"],
+  },
+};
+
+interface SummarizeBody {
+  label?: unknown;
+  transcript?: unknown;
+  actions?: unknown;
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+function formatActions(value: unknown): string {
+  if (!Array.isArray(value)) return "（なし）";
+  const lines = value
+    .map((item) => (item && typeof item === "object" ? (item as { kind?: unknown; text?: unknown }) : null))
+    .filter((item): item is { kind?: unknown; text?: unknown } => item !== null)
+    .map((item) => {
+      const text = typeof item.text === "string" ? item.text.trim() : "";
+      if (!text) return "";
+      const kind = item.kind === "todo" ? "宿題" : "決定";
+      return `- [${kind}] ${text}`;
+    })
+    .filter((line) => line.length > 0);
+  return lines.length > 0 ? lines.join("\n") : "（なし）";
+}
+
+export default async function handler(request: Request): Promise<Response> {
+  if (request.method !== "POST") {
+    return new Response("POST してください。", { status: 405 });
+  }
+
+  let body: SummarizeBody;
+  try {
+    body = (await request.json()) as SummarizeBody;
+  } catch {
+    return new Response("リクエストの形式が正しくありません。", { status: 400 });
+  }
+
+  const rawTranscript = typeof body.transcript === "string" ? body.transcript.trim() : "";
+  if (!rawTranscript) {
+    return new Response("文字起こしが空です。", { status: 400 });
+  }
+  const transcript =
+    rawTranscript.length > MAX_TRANSCRIPT_CHARS
+      ? `（前半は長さの都合で省略）\n${rawTranscript.slice(rawTranscript.length - MAX_TRANSCRIPT_CHARS)}`
+      : rawTranscript;
+  const label = typeof body.label === "string" && body.label ? body.label : "打ち合わせ";
+
+  const userText = [
+    `場面: ${label}`,
+    "",
+    "【会話中に拾ってあった決定事項・宿題事項】",
+    formatActions(body.actions),
+    "",
+    "【文字起こし全文】",
+    transcript,
+  ].join("\n");
+
+  try {
+    const result = await callClaude(SYSTEM, userText, TOOL);
+    return json({
+      overview: typeof result.overview === "string" ? result.overview : "",
+      points: Array.isArray(result.points) ? result.points : [],
+      decisions: Array.isArray(result.decisions) ? result.decisions : [],
+      todos: Array.isArray(result.todos) ? result.todos : [],
+    });
+  } catch (error) {
+    if (error instanceof MissingKeyError) {
+      return new Response(error.message, { status: 503 });
+    }
+    return new Response(error instanceof Error ? error.message : "AIの呼び出しに失敗しました。", { status: 502 });
+  }
+}
