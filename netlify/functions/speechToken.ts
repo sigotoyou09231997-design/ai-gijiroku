@@ -55,7 +55,14 @@ async function grantDeepgram(): Promise<Response> {
 
   if (!response.ok) {
     // 返答の本文はそのまま外に出さない（キーの手掛かりが混ざりうるため）。
-    const hint = response.status === 401 || response.status === 403 ? "キーが違う可能性があります。" : "";
+    // 403 はキーが違うのではなく、キーの権限（スコープ）が足りないときに出る。
+    // 見分けが付かないと「キーを入れ直す」を延々やることになるので、ここで書き分ける。
+    const hint =
+      response.status === 403
+        ? "キーの権限が足りません。Deepgram の管理画面で、Owner（または Admin）の権限を持つキーを作り直してください。"
+        : response.status === 401
+          ? "キーが違う可能性があります。"
+          : "";
     return new Response(`音声認識の合鍵を取得できませんでした（HTTP ${response.status}）。${hint}`, {
       status: 502,
     });

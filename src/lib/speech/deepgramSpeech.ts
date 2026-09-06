@@ -111,8 +111,13 @@ class SourceStream {
     }
 
     // ブラウザは WebSocket に独自ヘッダを付けられないので、
-    // 副プロトコル（Sec-WebSocket-Protocol）に合鍵を載せる。Deepgram の作法。
-    const ws = new WebSocket(listenUrl(this.lang, model), ["token", token]);
+    // 副プロトコル（Sec-WebSocket-Protocol）に合鍵を載せる。
+    //
+    // 合言葉は "bearer"。Deepgram の文書には "token" と書かれているが、
+    // それは購読キーを直に渡すときの形で、/v1/auth/grant で取った合鍵（JWT）では
+    // 弾かれる（1006 で閉じられる）。URL の access_token に載せる形も同じく通らない。
+    // 実際に3通り試して確かめた結果なので、変えるときは必ず繋いで確かめること。
+    const ws = new WebSocket(listenUrl(this.lang, model), ["bearer", token]);
     this.ws = ws;
 
     ws.onopen = () => {
