@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2, CircleDot, ListTodo, Loader2, MessageCircleQuestion, Mic, Square } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDot, ListTodo, Loader2, MessageCircleQuestion, Mic, RefreshCw, Square, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { SESSION_LABELS, useLiveSession } from "../hooks/useLiveSession";
 import { formatTime } from "../lib/format";
+import { speakerLabel } from "../lib/types";
 
 export default function RecordPage() {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ export default function RecordPage() {
     element.scrollTop = element.scrollHeight;
   }, [segments, interim]);
 
+  const interimEntries = Object.entries(live.interim).filter(([, text]) => Boolean(text));
   const recording = live.status === "recording";
   const finishing = live.status === "finishing";
 
@@ -100,6 +102,7 @@ export default function RecordPage() {
               音声認識が止まっています（「終了して保存」でここまでを残せます）
             </span>
           )}
+          <span className="text-gray-400">{live.speechLabel}</span>
           {live.analyzing && (
             <span className="flex items-center gap-1">
               <Loader2 size={14} className="animate-spin" aria-hidden />
@@ -118,6 +121,77 @@ export default function RecordPage() {
         )}
       </section>
 
+      {live.canSeparateSpeakers && (
+        <section className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex items-center gap-2">
+            <Users size={16} className="text-gray-500" aria-hidden />
+            <h2 className="text-sm font-semibold text-gray-700">どの音を、誰の声として聞くか</h2>
+            <div className="grow" />
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+              onClick={() => void live.refreshDevices()}
+              disabled={recording}
+            >
+              <RefreshCw size={12} aria-hidden />
+              一覧を更新
+            </button>
+          </div>
+
+          <p className="mt-2 text-xs leading-relaxed text-gray-500">
+            2つを別々に聞き取るので、どちらが喋ったのかが確実に分かります。相手の声は、Zoom
+            などの音を仮想オーディオ（BlackHole など）で受けた入力を選んでください。
+          </p>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-semibold text-indigo-700">自分の声（マイク）</span>
+              <select
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                value={live.sourceChoice.selfDeviceId}
+                disabled={recording || finishing}
+                onChange={(event) =>
+                  live.setSourceChoice({ ...live.sourceChoice, selfDeviceId: event.target.value })
+                }
+              >
+                <option value="">既定のマイク</option>
+                {live.devices.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-emerald-700">相手の声（通話の音）</span>
+              <select
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                value={live.sourceChoice.otherDeviceId}
+                disabled={recording || finishing}
+                onChange={(event) =>
+                  live.setSourceChoice({ ...live.sourceChoice, otherDeviceId: event.target.value })
+                }
+              >
+                <option value="">聞かない（自分の声だけ）</option>
+                {live.devices.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {live.sourceChoice.selfDeviceId !== "" &&
+            live.sourceChoice.selfDeviceId === live.sourceChoice.otherDeviceId && (
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                同じ入力を両方に選んでいます。これでは話者を分けられません。別々のものを選んでください。
+              </p>
+            )}
+        </section>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold text-gray-700">文字起こし</h2>
@@ -125,16 +199,37 @@ export default function RecordPage() {
             ref={transcriptRef}
             className="mt-3 h-80 space-y-2 overflow-y-auto rounded-lg bg-gray-50 p-3 text-sm leading-relaxed"
           >
-            {segments.length === 0 && !interim && (
+            {segments.length === 0 && interimEntries.length === 0 && (
               <p className="text-gray-400">「開始」を押すと、話した内容がここに流れます。</p>
             )}
-            {segments.map((segment) => (
-              <p key={segment.id} className="text-gray-800">
-                <span className="mr-2 text-xs text-gray-400">{formatTime(segment.at)}</span>
-                {segment.text}
+            {segments.map((segment) => {
+              const who = speakerLabel(segment.speaker);
+              return (
+                <p key={segment.id} className="text-gray-800">
+                  <span className="mr-2 text-xs text-gray-400">{formatTime(segment.at)}</span>
+                  {who && (
+                    <span
+                      className={`mr-2 rounded px-1.5 py-0.5 text-xs font-semibold ${
+                        segment.speaker === "self"
+                          ? "bg-indigo-100 text-indigo-700"
+                          : "bg-emerald-100 text-emerald-700"
+                      }`}
+                    >
+                      {who}
+                    </span>
+                  )}
+                  {segment.text}
+                </p>
+              );
+            })}
+            {interimEntries.map(([speaker, text]) => (
+              <p key={speaker} className="text-gray-400">
+                {speakerLabel(speaker as never) && (
+                  <span className="mr-2 text-xs">{speakerLabel(speaker as never)}</span>
+                )}
+                {text}
               </p>
             ))}
-            {interim && <p className="text-gray-400">{interim}</p>}
           </div>
         </section>
 

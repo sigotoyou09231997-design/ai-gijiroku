@@ -1,6 +1,6 @@
 import { AiNotConfiguredError, summarizeTranscript } from "./ai/client";
 import { loadSession, saveSession } from "./db";
-import { transcriptText } from "./types";
+import { labeledTranscriptText } from "./types";
 
 /**
  * セッション1件の要約を作って保存し直す。
@@ -13,7 +13,8 @@ export async function generateSummary(sessionId: string): Promise<void> {
   const session = await loadSession(sessionId);
   if (!session) return;
 
-  const transcript = transcriptText(session.segments).trim();
+  // 誰の発言かが分かっているぶんには札が付く。要約でも「相手が言った」と書き分けられる。
+  const transcript = labeledTranscriptText(session.segments).trim();
   if (!transcript) {
     await saveSession({ ...session, summaryError: "文字起こしが空だったため、要約は作れませんでした。" });
     return;
