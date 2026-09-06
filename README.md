@@ -74,6 +74,7 @@ macOS なら「複数出力装置」で イヤホン＋BlackHole の両方へ出
 ```
 npx tsc --noEmit   # 型チェック
 npm test           # テスト（Vitest）
+npm run serve      # ★ふだん使うのはこれ（画面＋netlify/functions＝音声認識もAIも動く）
 npm run dev        # 画面だけ（AIの関数は動かない）
-npx netlify dev    # 画面＋netlify/functions
+npx netlify dev    # npm run serve と同じ
 ```
