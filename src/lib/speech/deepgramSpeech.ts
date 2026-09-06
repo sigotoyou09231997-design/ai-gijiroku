@@ -24,6 +24,12 @@ const LISTEN_URL = "wss://api.deepgram.com/v1/listen";
 const CHUNK_MS = 250;
 /** 無音が続くと切られるので、生きていることを伝える間隔。 */
 const KEEPALIVE_MS = 5_000;
+/**
+ * 途中経過が確定しないまま居座ってよい時間。これを過ぎたらこちらで確定にする。
+ * Deepgram の合図（UtteranceEnd）が来ない場面のための最後の砦なので、
+ * 早すぎると本来ひと続きの文が切れる。長めに取ってある。
+ */
+const STALL_MS = 8_000;
 
 interface TokenResponse {
   provider?: string;
@@ -93,6 +99,12 @@ function listenUrl(lang: string, model: string): string {
     interim_results: "true",
     punctuate: "true",
     smart_format: "true",
+    // 会議では物音や通話の音が途切れないので、既定のままだと「無音の切れ目」が
+    // 来ず、文章がいつまでも確定しない（灰色のまま固まる）。
+    // 短い間があれば区切り、さらに1秒喋りが無ければ UtteranceEnd を送ってもらう。
+    endpointing: "300",
+    utterance_end_ms: "1000",
+    vad_events: "true",
   });
   return `${LISTEN_URL}?${params.toString()}`;
 }
@@ -103,7 +115,11 @@ class SourceStream {
   private recorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private keepAlive: ReturnType<typeof setInterval> | null = null;
+  private stall: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
+  /** まだ確定していない途中経過と、それを受け取った時刻。 */
+  private pendingText = "";
+  private pendingAt = 0;
 
   constructor(
     private readonly source: SpeechSource,
@@ -159,6 +175,14 @@ class SourceStream {
       this.keepAlive = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "KeepAlive" }));
       }, KEEPALIVE_MS);
+
+      // 最後の砦。確定の合図が来ないまま途中経過が居座ったら、こちらで確定にする。
+      // これが無いと、音が途切れない場面で文字起こしが伸びなくなる。
+      this.stall = setInterval(() => {
+        if (!this.pendingText) return;
+        if (Date.now() - this.pendingAt < STALL_MS) return;
+        this.flushPending(handlers);
+      }, 1_000);
     };
 
     ws.onmessage = (event) => {
@@ -173,10 +197,26 @@ class SourceStream {
         is_final?: boolean;
         channel?: { alternatives?: { transcript?: string }[] };
       };
+
+      // 「ここで一区切り」の合図。溜まっている途中経過を確定にする。
+      if (message.type === "UtteranceEnd") {
+        this.flushPending(handlers);
+        return;
+      }
       if (message.type && message.type !== "Results") return;
+
       const text = message.channel?.alternatives?.[0]?.transcript?.trim();
       if (!text) return;
-      handlers.onChunk({ text, isFinal: Boolean(message.is_final), speaker: this.source.speaker });
+
+      if (message.is_final) {
+        // Deepgram が確定させたので、こちらで抱えていたぶんは捨てる（二重に出さない）。
+        this.pendingText = "";
+        handlers.onChunk({ text, isFinal: true, speaker: this.source.speaker });
+        return;
+      }
+      this.pendingText = text;
+      this.pendingAt = Date.now();
+      handlers.onChunk({ text, isFinal: false, speaker: this.source.speaker });
     };
 
     ws.onerror = () => {
@@ -194,6 +234,14 @@ class SourceStream {
     };
   }
 
+  /** 抱えている途中経過を確定にして手放す。 */
+  private flushPending(handlers: SpeechHandlers): void {
+    const text = this.pendingText;
+    this.pendingText = "";
+    if (!text) return;
+    handlers.onChunk({ text, isFinal: true, speaker: this.source.speaker });
+  }
+
   private releaseStream(): void {
     if (this.stream) {
       for (const track of this.stream.getTracks()) track.stop();
@@ -207,6 +255,11 @@ class SourceStream {
       clearInterval(this.keepAlive);
       this.keepAlive = null;
     }
+    if (this.stall) {
+      clearInterval(this.stall);
+      this.stall = null;
+    }
+    this.pendingText = "";
     if (this.recorder && this.recorder.state !== "inactive") {
       try {
         this.recorder.stop();
