@@ -4,8 +4,18 @@ import { contextWindow, shouldAnalyze } from "../lib/analysis/schedule";
 import { mergeActions, mergeQuestions } from "../lib/analysis/merge";
 import { newId, saveSession } from "../lib/db";
 import { generateSummary } from "../lib/sessionSummary";
-import { getSpeechProvider } from "../lib/speech";
-import type { SpeechRecognizer } from "../lib/speech";
+import {
+  type AudioInputDevice,
+  ensureMicPermission,
+  listAudioInputs,
+  loadChoice,
+  reconcile,
+  saveChoice,
+  type SourceChoice,
+} from "../lib/speech/devices";
+import { getSpeechProvider, resolveSpeechProvider } from "../lib/speech";
+import type { Speaker, SpeechProvider, SpeechRecognizer, SpeechSource } from "../lib/speech";
+import { speakerLabel } from "../lib/types";
 import type { ActionItem, DetectedQuestion, MeetingSession, TranscriptSegment } from "../lib/types";
 
 export const SESSION_LABELS = ["打ち合わせ", "面接", "議事録"];
@@ -15,6 +25,9 @@ const TICK_MS = 2_000;
 
 export type LiveStatus = "idle" | "recording" | "finishing";
 
+/** いま喋っている途中のぶん。話者ごとに別々に出す（同時に喋ることがあるため）。 */
+export type InterimBySpeaker = Partial<Record<Speaker, string>>;
+
 export interface LiveSession {
   status: LiveStatus;
   /** 音声認識が動いているか。止まっても、それまでのぶんは保存できるようにしておく。 */
@@ -23,7 +36,7 @@ export interface LiveSession {
   setLabel(label: string): void;
   segments: TranscriptSegment[];
   /** まだ確定していない、いま喋っているぶん。 */
-  interim: string;
+  interim: InterimBySpeaker;
   questions: DetectedQuestion[];
   actions: ActionItem[];
   analyzing: boolean;
@@ -32,25 +45,44 @@ export interface LiveSession {
   /** 音声認識が使えるか（使えない理由つき）。 */
   speechAvailable: boolean;
   speechUnavailableReason: string | null;
+  /** 使っている音声認識の名前（画面に出す）。 */
+  speechLabel: string;
+  /** 音源を話者ごとに分けて聞けるか。false なら下の設定欄は出さない。 */
+  canSeparateSpeakers: boolean;
+  /** 選べる入力デバイス。 */
+  devices: AudioInputDevice[];
+  /** いまの選択。 */
+  sourceChoice: SourceChoice;
+  setSourceChoice(choice: SourceChoice): void;
+  refreshDevices(): Promise<void>;
   start(): void;
   /** 終了して保存する。保存したセッションのIDを返す（何も録れていなければ null）。 */
   finish(): Promise<string | null>;
 }
 
+/** AI に渡す行。誰の声か分かっているぶんには札を付ける。 */
+function labeledLine(text: string, speaker: Speaker): string {
+  const label = speakerLabel(speaker);
+  return label ? `[${label}] ${text}` : text;
+}
+
 export function useLiveSession(): LiveSession {
-  const provider = useMemo(() => getSpeechProvider(), []);
+  // 起動直後はブラウザ標準。Azure が使える設定ならすぐ差し替わる。
+  const [provider, setProvider] = useState<SpeechProvider>(() => getSpeechProvider());
   const providerInfo = useMemo(() => provider.info(), [provider]);
 
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [micActive, setMicActive] = useState(false);
   const [label, setLabel] = useState<string>(SESSION_LABELS[0]);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
-  const [interim, setInterim] = useState("");
+  const [interim, setInterim] = useState<InterimBySpeaker>({});
   const [questions, setQuestions] = useState<DetectedQuestion[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<AudioInputDevice[]>([]);
+  const [sourceChoice, setSourceChoiceState] = useState<SourceChoice>(() => loadChoice());
 
   // 解析は setInterval から呼ぶので、最新の値を ref で持つ（state だと古い値を掴む）。
   const recognizerRef = useRef<SpeechRecognizer | null>(null);
@@ -66,10 +98,50 @@ export function useLiveSession(): LiveSession {
   const lastSentAtRef = useRef(0);
   const inFlightRef = useRef(false);
   const labelRef = useRef(label);
+  const choiceRef = useRef(sourceChoice);
 
   useEffect(() => {
     labelRef.current = label;
   }, [label]);
+  useEffect(() => {
+    choiceRef.current = sourceChoice;
+  }, [sourceChoice]);
+
+  // Azure が使える設定かをサーバーに聞いて、使える方に差し替える。
+  useEffect(() => {
+    let alive = true;
+    void resolveSpeechProvider().then((p) => {
+      if (alive) setProvider(() => p);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const refreshDevices = useCallback(async () => {
+    // 名前を読むには許可が要る。断られても一覧そのものは出す（名前が空になるだけ）。
+    await ensureMicPermission();
+    const found = await listAudioInputs();
+    setDevices(found);
+    setSourceChoiceState((current) => {
+      const fixed = reconcile(current, found);
+      if (fixed.selfDeviceId !== current.selfDeviceId || fixed.otherDeviceId !== current.otherDeviceId) {
+        saveChoice(fixed);
+      }
+      return fixed;
+    });
+  }, []);
+
+  // 分けて聞ける音声認識のときだけ、デバイスの一覧が要る。
+  useEffect(() => {
+    if (!providerInfo.supportsMultipleSources) return;
+    void refreshDevices();
+  }, [providerInfo.supportsMultipleSources, refreshDevices]);
+
+  const setSourceChoice = useCallback((choice: SourceChoice) => {
+    setSourceChoiceState(choice);
+    saveChoice(choice);
+  }, []);
 
   const runAnalyze = useCallback(
     async (force: boolean): Promise<void> => {
@@ -154,24 +226,35 @@ export function useLiveSession(): LiveSession {
     setSegments([]);
     setQuestions([]);
     setActions([]);
-    setInterim("");
+    setInterim({});
     setSpeechError(null);
     setAiError(null);
     setAnalyzing(false);
 
-    const recognizer = provider.create({ lang: "ja-JP" });
+    // 分けて聞けるときは、選んだデバイスを話者ごとに1本ずつ渡す。
+    let sources: SpeechSource[] | undefined;
+    if (providerInfo.supportsMultipleSources) {
+      const choice = choiceRef.current;
+      sources = [{ speaker: "self", deviceId: choice.selfDeviceId || undefined }];
+      if (choice.otherDeviceId) {
+        sources.push({ speaker: "other", deviceId: choice.otherDeviceId });
+      }
+    }
+
+    const recognizer = provider.create({ lang: "ja-JP", sources });
     recognizerRef.current = recognizer;
     recognizer.start({
-      onChunk: ({ text, isFinal }) => {
+      onChunk: ({ text, isFinal, speaker }) => {
         if (!isFinal) {
-          setInterim(text);
+          setInterim((current) => ({ ...current, [speaker]: text }));
           return;
         }
-        setInterim("");
+        setInterim((current) => ({ ...current, [speaker]: "" }));
         const trimmed = text.trim();
         if (!trimmed) return;
-        pendingRef.current = pendingRef.current ? `${pendingRef.current}\n${trimmed}` : trimmed;
-        const segment: TranscriptSegment = { id: newId(), text: trimmed, at: Date.now() };
+        const line = labeledLine(trimmed, speaker);
+        pendingRef.current = pendingRef.current ? `${pendingRef.current}\n${line}` : line;
+        const segment: TranscriptSegment = { id: newId(), text: trimmed, at: Date.now(), speaker };
         segmentsRef.current = [...segmentsRef.current, segment];
         setSegments(segmentsRef.current);
       },
@@ -185,7 +268,7 @@ export function useLiveSession(): LiveSession {
 
     setMicActive(true);
     setStatus("recording");
-  }, [provider, providerInfo.available]);
+  }, [provider, providerInfo.available, providerInfo.supportsMultipleSources]);
 
   const finish = useCallback(async (): Promise<string | null> => {
     const sessionId = sessionIdRef.current;
@@ -195,7 +278,7 @@ export function useLiveSession(): LiveSession {
     recognizerRef.current?.stop();
     recognizerRef.current = null;
     setMicActive(false);
-    setInterim("");
+    setInterim({});
 
     // 最後に喋ったぶんも拾ってから閉じる。
     await runAnalyze(true);
@@ -239,6 +322,12 @@ export function useLiveSession(): LiveSession {
     aiError,
     speechAvailable: providerInfo.available,
     speechUnavailableReason: providerInfo.reason ?? null,
+    speechLabel: providerInfo.label,
+    canSeparateSpeakers: providerInfo.supportsMultipleSources,
+    devices,
+    sourceChoice,
+    setSourceChoice,
+    refreshDevices,
     start,
     finish,
   };

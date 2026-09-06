@@ -98,7 +98,8 @@ class WebSpeechRecognizer implements SpeechRecognizer {
         const result = event.results[i];
         const text = result[0]?.transcript ?? "";
         if (!text) continue;
-        handlers.onChunk({ text, isFinal: result.isFinal });
+        // 1本の音にまとめて聞いているので、誰の声かは区別できない。
+        handlers.onChunk({ text, isFinal: result.isFinal, speaker: "unknown" });
       }
     };
 
@@ -149,12 +150,13 @@ export const webSpeechProvider: SpeechProvider = {
   id: "web-speech",
   info(): SpeechProviderInfo {
     if (typeof window === "undefined") {
-      return { label: "ブラウザ標準の音声認識", available: false, reason: "ブラウザ以外では使えません。" };
+      return { label: "ブラウザ標準の音声認識", available: false, supportsMultipleSources: false, reason: "ブラウザ以外では使えません。" };
     }
     if (!getCtor()) {
       return {
         label: "ブラウザ標準の音声認識",
         available: false,
+        supportsMultipleSources: false,
         reason:
           "このブラウザは音声認識（Web Speech API）に対応していません。Google Chrome か Microsoft Edge で開いてください。",
       };
@@ -163,10 +165,11 @@ export const webSpeechProvider: SpeechProvider = {
       return {
         label: "ブラウザ標準の音声認識",
         available: false,
+        supportsMultipleSources: false,
         reason: "https（または localhost）で開いていないため、マイクを使えません。",
       };
     }
-    return { label: "ブラウザ標準の音声認識", available: true };
+    return { label: "ブラウザ標準の音声認識", available: true, supportsMultipleSources: false };
   },
   create({ lang }) {
     return new WebSpeechRecognizer(lang);
