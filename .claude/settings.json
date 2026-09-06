@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/../scripts/cowork-hook-start.sh\"" }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/../scripts/cowork-hook-stop.sh\"" }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc --noEmit)",
+      "Bash(npm test)",
+      "Bash(npm test *)",
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(npm ci)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git fetch *)",
+      "Bash(git fetch:*)",
+      "Bash(git pull *)",
+      "Bash(git pull --rebase:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git status:*)",
+      "Bash(bash ../scripts/cowork-watch.sh:*)",
+      "Bash(bash ../scripts/cowork-commit-state.sh:*)",
+      "Bash(bash \"/Users/apple/Desktop/WEB\u30a2\u30d7\u30ea\u7528/scripts/cowork-commit-state.sh\":*)",
+      "Bash(bash scripts/cowork-commit-state.sh:*)"
+    ]
+  }
+}
