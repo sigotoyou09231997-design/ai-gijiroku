@@ -61,10 +61,34 @@ function pickMimeType(): string | undefined {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
+/**
+ * 言語コードを Deepgram の流儀に直す。
+ *
+ * 画面は Web Speech API の流儀で "ja-JP" のような地域付きの書き方を渡してくるが、
+ * Deepgram の日本語は "ja" で、"ja-JP" を渡すと**エラーにならず空の結果が返る**。
+ * 接続も課金も普通に成立するので、これに気付くのは難しい。実際に
+ * 「音は届いているのに1文字も出ない」状態を作って、Deepgram 側の記録
+ * （/v1/projects/{id}/requests）と突き合わせて分かった。
+ *
+ * 地域まで見るのは Deepgram がそう定めている一部の言語だけなので、
+ * それ以外は先頭の部分だけを使う。
+ */
+export function deepgramLanguage(lang: string): string {
+  const normalized = lang.trim().toLowerCase();
+  if (!normalized) return "ja";
+  // 地域まで含めて指定する言語（Deepgram がそう定めているもの）。
+  const withRegion = new Set([
+    "en-us", "en-gb", "en-au", "en-in", "en-nz",
+    "es-419", "pt-br", "pt-pt", "zh-cn", "zh-tw", "fr-ca", "nl-be",
+  ]);
+  if (withRegion.has(normalized)) return normalized;
+  return normalized.split("-")[0];
+}
+
 function listenUrl(lang: string, model: string): string {
   const params = new URLSearchParams({
     model,
-    language: lang,
+    language: deepgramLanguage(lang),
     // 途中経過も受け取る（画面に薄く出すため）。
     interim_results: "true",
     punctuate: "true",
