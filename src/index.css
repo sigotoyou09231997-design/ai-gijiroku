@@ -3,47 +3,72 @@
 @tailwind utilities;
 
 /*
- * 色は全部ここで決める。画面側は canvas / surface / line … といった役割名だけを使い、
- * 具体的な色を書かない。こうしておくと、暗い配色への切り替えがこのファイルだけで済む。
+ * このアプリは「会議中にチラ見して、そのまま読み上げる」道具。
+ * 映画館の暗さと、カンペだけが明るく浮かぶ関係を狙っている。
+ * 既定は暗い配色。明るい部屋の人には OS の設定に合わせて明るい配色を出す。
  *
  * 値は「R G B」の3つ組。Tailwind 側で不透明度を掛けられるようにするため。
  */
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  --canvas: 247 247 249;   /* 画面の地 */
-  --surface: 255 255 255;  /* カードの地 */
-  --raised: 250 250 252;   /* カードの中の一段沈んだ面 */
-  --line: 229 229 236;     /* 罫線 */
-  --ink: 24 24 31;         /* 本文 */
-  --muted: 108 108 122;    /* 補足 */
-  --faint: 154 154 167;    /* さらに弱い補足 */
+  --canvas: 10 10 14;      /* 画面の地（ほぼ黒） */
+  --surface: 21 21 28;     /* カードの地 */
+  --raised: 30 30 39;      /* カードの中の一段浮いた面 */
+  --line: 44 44 56;        /* 罫線 */
+  --ink: 240 240 246;      /* 本文 */
+  --muted: 150 150 165;    /* 補足 */
+  --faint: 105 105 122;    /* さらに弱い補足 */
 
-  --self: 79 70 229;       /* 自分（藍） */
-  --self-soft: 238 238 253;
-  --other: 13 148 136;     /* 相手（青緑） */
-  --other-soft: 226 246 243;
-  --live: 225 29 72;       /* 録音中（紅） */
+  --self: 129 140 248;     /* 自分（藍） */
+  --self-soft: 34 36 68;
+  --other: 45 212 191;     /* 相手（青緑） */
+  --other-soft: 16 48 47;
+  --live: 251 113 133;     /* 録音中（紅） */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
+/*
+ * 明るい配色。2か所に同じ値を書いているのは、
+ *  ・OSが明るい設定で、手で選んでいないとき（自動）
+ *  ・画面のボタンで「明るい」を選んだとき
+ * の両方に効かせるため。CSSには値をまとめて使い回す仕組みが無い。
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
 
-    --canvas: 14 14 17;
-    --surface: 23 23 28;
-    --raised: 30 30 37;
-    --line: 42 42 51;
-    --ink: 236 236 241;
-    --muted: 154 154 165;
-    --faint: 118 118 130;
+    --canvas: 244 244 247;
+    --surface: 255 255 255;
+    --raised: 249 249 252;
+    --line: 226 226 234;
+    --ink: 22 22 29;
+    --muted: 104 104 119;
+    --faint: 150 150 165;
 
-    --self: 139 139 240;
-    --self-soft: 38 38 62;
-    --other: 45 212 191;
-    --other-soft: 20 52 50;
-    --live: 251 113 133;
+    --self: 79 70 229;
+    --self-soft: 237 237 253;
+    --other: 13 148 136;
+    --other-soft: 224 246 243;
+    --live: 225 29 72;
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --canvas: 244 244 247;
+  --surface: 255 255 255;
+  --raised: 249 249 252;
+  --line: 226 226 234;
+  --ink: 22 22 29;
+  --muted: 104 104 119;
+  --faint: 150 150 165;
+
+  --self: 79 70 229;
+  --self-soft: 237 237 253;
+  --other: 13 148 136;
+  --other-soft: 224 246 243;
+  --live: 225 29 72;
 }
 
 @layer base {
@@ -53,6 +78,18 @@
     color: rgb(var(--ink));
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "palt" 1; /* 日本語の字間を詰めて読みやすくする */
+  }
+
+  /* 暗い地の上で、上部にうっすら光を置く。平坦な黒板に見えないように。 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(60rem 30rem at 20% -10%, rgb(var(--self) / 0.13), transparent 70%),
+      radial-gradient(50rem 26rem at 85% -6%, rgb(var(--other) / 0.09), transparent 70%);
   }
 
   /* 会議中は文字起こしが速く流れる。動きを減らす設定の人には動かさない。 */
@@ -69,17 +106,42 @@
 @layer components {
   /* 新しい行やカンペが増えたときに、目が追える程度だけ動かす。 */
   .enter {
-    animation: enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
+
+  /* 聞いていることが分かる、音の棒。実際の音量ではなく「動いている」印。 */
+  .bars span {
+    display: block;
+    width: 3px;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: bar 1s ease-in-out infinite;
+  }
+  .bars span:nth-child(1) { height: 8px;  animation-delay: 0ms; }
+  .bars span:nth-child(2) { height: 14px; animation-delay: 120ms; }
+  .bars span:nth-child(3) { height: 20px; animation-delay: 240ms; }
+  .bars span:nth-child(4) { height: 12px; animation-delay: 360ms; }
+  .bars span:nth-child(5) { height: 7px;  animation-delay: 480ms; }
 }
 
 @keyframes enter {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
     transform: none;
   }
+}
+
+@keyframes bar {
+  0%, 100% { transform: scaleY(0.4); }
+  50%      { transform: scaleY(1); }
+}
+
+@keyframes halo {
+  0%   { transform: scale(1);    opacity: 0.55; }
+  70%  { transform: scale(1.35); opacity: 0; }
+  100% { transform: scale(1.35); opacity: 0; }
 }

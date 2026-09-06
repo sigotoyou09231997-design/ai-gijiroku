@@ -90,76 +90,100 @@ export default function RecordPage() {
         </div>
       )}
 
-      {/* ── 操作バー ───────────────────────────────── */}
-      <section className="rounded-2xl border border-line bg-surface p-4 shadow-card">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-muted" htmlFor="session-label">
-              種類
-            </label>
-            <input
-              id="session-label"
-              list="session-label-presets"
-              className="w-36 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm text-ink outline-none transition-colors focus:border-self disabled:opacity-60"
-              value={live.label}
-              onChange={(event) => live.setLabel(event.target.value)}
-              disabled={recording || finishing}
-            />
-            <datalist id="session-label-presets">
-              {SESSION_LABELS.map((preset) => (
-                <option key={preset} value={preset} />
-              ))}
-            </datalist>
-          </div>
-
-          {recording && (
-            <div className="flex items-center gap-3 rounded-full bg-live/10 px-3 py-1.5">
-              <span className="relative flex h-2 w-2" aria-hidden>
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-live opacity-70" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-live" />
-              </span>
-              <span className="text-xs font-semibold text-live">録音中</span>
-              <span className="font-mono text-xs tabular-nums text-live/80">{elapsed}</span>
-            </div>
-          )}
-
-          {live.analyzing && (
-            <span className="flex items-center gap-1.5 text-xs text-muted">
-              <Loader2 size={13} className="animate-spin" aria-hidden />
-              AIが確認中
-            </span>
-          )}
-
-          <div className="grow" />
-
-          <span className="text-xs text-faint">{live.speechLabel}</span>
-
-          {!recording ? (
+      {/* ── 操作の場（待機中は大きく、録音中は小さく） ───── */}
+      <section
+        className={`relative overflow-hidden rounded-3xl border border-line bg-surface shadow-card transition-all ${
+          recording ? "p-4" : "p-8"
+        }`}
+      >
+        {!recording ? (
+          <div className="flex flex-col items-center gap-5 text-center">
             <button
               type="button"
-              className="flex items-center gap-2 rounded-xl bg-self px-5 py-2.5 text-sm font-semibold text-white shadow-card transition-all hover:shadow-lift disabled:cursor-not-allowed disabled:bg-faint disabled:shadow-none"
+              className="group relative flex h-24 w-24 items-center justify-center rounded-full bg-self text-white shadow-lift transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:bg-faint disabled:shadow-none"
               onClick={live.start}
               disabled={!live.speechAvailable || finishing}
+              aria-label="開始"
             >
-              <Mic size={16} aria-hidden />
-              開始
+              {/* 押せるときだけ、静かに広がる輪を出す。 */}
+              {live.speechAvailable && !finishing && (
+                <span
+                  className="absolute inset-0 rounded-full bg-self"
+                  style={{ animation: "halo 2.4s ease-out infinite" }}
+                  aria-hidden
+                />
+              )}
+              <Mic size={34} strokeWidth={2} className="relative" aria-hidden />
             </button>
-          ) : (
+
+            <div>
+              <p className="text-lg font-bold tracking-tight">開始</p>
+              <p className="mt-1 text-sm text-muted">
+                押すと、あなたと相手の声を別々に聞き取ります
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <label className="text-xs text-faint" htmlFor="session-label">
+                種類
+              </label>
+              <input
+                id="session-label"
+                list="session-label-presets"
+                className="w-40 rounded-lg border border-line bg-raised px-3 py-1.5 text-center text-sm text-ink outline-none transition-colors focus:border-self"
+                value={live.label}
+                onChange={(event) => live.setLabel(event.target.value)}
+                disabled={finishing}
+              />
+              <datalist id="session-label-presets">
+                {SESSION_LABELS.map((preset) => (
+                  <option key={preset} value={preset} />
+                ))}
+              </datalist>
+              <span className="rounded-full border border-line px-2.5 py-1 text-[11px] text-faint">
+                {live.speechLabel}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 録音中はここが「生きている」ことの合図になる。 */}
+            <div className="flex items-center gap-3 rounded-full bg-live/12 px-4 py-2">
+              <span className="bars flex items-end gap-[3px] text-live" aria-hidden>
+                <span /><span /><span /><span /><span />
+              </span>
+              <span className="text-xs font-bold tracking-wide text-live">録音中</span>
+              <span className="font-mono text-sm tabular-nums text-live">{elapsed}</span>
+            </div>
+
+            <span className="rounded-full border border-line px-2.5 py-1 text-[11px] text-faint">
+              {live.label}
+            </span>
+
+            {live.analyzing && (
+              <span className="flex items-center gap-1.5 text-xs text-muted">
+                <Loader2 size={13} className="animate-spin" aria-hidden />
+                AIが確認中
+              </span>
+            )}
+
+            <div className="grow" />
+
             <button
               type="button"
-              className="flex items-center gap-2 rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-surface shadow-card transition-all hover:shadow-lift disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex items-center gap-2 rounded-xl border border-line bg-raised px-5 py-2.5 text-sm font-semibold text-ink transition-all hover:border-live/50 hover:text-live disabled:cursor-not-allowed disabled:opacity-60"
               onClick={() => void handleFinish()}
               disabled={finishing}
             >
               {finishing ? (
                 <Loader2 size={16} className="animate-spin" aria-hidden />
               ) : (
-                <Square size={15} aria-hidden />
+                <Square size={14} aria-hidden />
               )}
               {finishing ? "まとめています…" : "終了して保存"}
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {recording && !live.micActive && (
           <p className="mt-3 flex items-center gap-2 rounded-lg bg-live/10 px-3 py-2 text-sm text-live">
@@ -277,10 +301,10 @@ export default function RecordPage() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         {/* 文字起こし */}
         <section className="flex flex-col rounded-2xl border border-line bg-surface shadow-card">
-          <h2 className="border-b border-line px-4 py-3 text-sm font-semibold">文字起こし</h2>
+          <h2 className="border-b border-line px-5 py-3.5 text-sm font-semibold">文字起こし</h2>
           <div
             ref={transcriptRef}
-            className="h-[26rem] space-y-2.5 overflow-y-auto px-4 py-3 text-sm leading-relaxed"
+            className="h-[30rem] space-y-3 overflow-y-auto px-5 py-4 text-sm leading-relaxed"
           >
             {segments.length === 0 && interimEntries.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -310,7 +334,7 @@ export default function RecordPage() {
                         {formatTime(segment.at)}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-ink">{segment.text}</p>
+                    <p className="mt-1 text-[15px] leading-relaxed text-ink">{segment.text}</p>
                   </div>
                 </div>
               );
@@ -334,50 +358,65 @@ export default function RecordPage() {
 
         {/* 質問と回答案（カンペ） */}
         <div className="space-y-4">
-          <section className="rounded-2xl border border-self/25 bg-surface shadow-card">
-            <h2 className="flex items-center gap-2 border-b border-line px-4 py-3 text-sm font-semibold">
+          <section className="rounded-2xl border border-self/30 bg-surface shadow-card">
+            <h2 className="flex items-center gap-2 border-b border-line px-5 py-3.5 text-sm font-semibold">
               <MessageCircleQuestion size={16} className="text-self" aria-hidden />
               あなたへの質問と回答案
               {questions.length > 0 && (
-                <span className="rounded-full bg-self-soft px-2 py-0.5 text-[11px] font-semibold text-self">
+                <span className="rounded-full bg-self px-2 py-0.5 text-[11px] font-bold text-white">
                   {questions.length}
                 </span>
               )}
             </h2>
 
-            <div className="max-h-[26rem] space-y-3 overflow-y-auto px-4 py-3">
+            <div className="max-h-[30rem] space-y-3 overflow-y-auto px-5 py-4">
               {questions.length === 0 && (
-                <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-                  <Sparkles size={20} className="text-faint" aria-hidden />
-                  <p className="text-sm text-faint">
+                <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+                  <Sparkles size={22} className="text-faint" aria-hidden />
+                  <p className="text-sm leading-relaxed text-faint">
                     相手から質問が出ると、
                     <br />
-                    ここに読み上げられる回答案が並びます
+                    そのまま読み上げられる回答案がここに出ます
                   </p>
                 </div>
               )}
 
-              {questions.map((item, index) => (
-                <article
-                  key={item.id}
-                  className={`enter rounded-xl border p-3.5 ${
-                    index === 0 ? "border-self/40 bg-self-soft" : "border-line bg-raised"
-                  }`}
-                >
-                  <p className="text-[13px] font-bold leading-snug text-self">{item.question}</p>
-                  <p className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
-                    {item.answer}
-                  </p>
-                  <p className="mt-2 font-mono text-[11px] tabular-nums text-faint">
-                    {formatTime(item.at)}
-                  </p>
-                </article>
-              ))}
+              {questions.map((item, index) => {
+                // 一番新しいものだけ強く光らせる。会議中はそれだけ読めばいい。
+                const newest = index === 0;
+                return (
+                  <article
+                    key={item.id}
+                    className={`enter rounded-2xl border p-4 transition-colors ${
+                      newest
+                        ? "border-self/50 bg-self-soft shadow-lift"
+                        : "border-line bg-raised opacity-80"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${newest ? "bg-self" : "bg-faint"}`}
+                        aria-hidden
+                      />
+                      <p className="text-[13px] font-bold leading-snug text-self">{item.question}</p>
+                    </div>
+
+                    {/* ここは声に出して読む所。行間と文字を大きめに取る。 */}
+                    <p className="mt-2.5 whitespace-pre-wrap pl-3.5 text-[17px] leading-[1.85] tracking-tight text-ink">
+                      {item.answer}
+                    </p>
+
+                    <p className="mt-2.5 pl-3.5 font-mono text-[11px] tabular-nums text-faint">
+                      {formatTime(item.at)}
+                    </p>
+                  </article>
+                );
+              })}
             </div>
           </section>
 
           {/* 決定事項・宿題事項 */}
-          <section className="rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
             <h2 className="text-sm font-semibold">決定事項・宿題事項</h2>
 
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
