@@ -88,8 +88,26 @@
     pointer-events: none;
     z-index: 0;
     background:
-      radial-gradient(60rem 30rem at 20% -10%, rgb(var(--self) / 0.13), transparent 70%),
-      radial-gradient(50rem 26rem at 85% -6%, rgb(var(--other) / 0.09), transparent 70%);
+      radial-gradient(64rem 32rem at 18% -12%, rgb(var(--self) / 0.16), transparent 70%),
+      radial-gradient(52rem 28rem at 88% -8%, rgb(var(--other) / 0.11), transparent 70%);
+  }
+
+  /*
+   * ごく細かい粒を全面に乗せる。単色の面はのっぺり見えるが、
+   * 粒が入ると紙のような厚みが出て、安っぽさが消える。
+   */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  @media (prefers-color-scheme: light) {
+    body::after { opacity: 0.02; }
   }
 
   /* 会議中は文字起こしが速く流れる。動きを減らす設定の人には動かさない。 */
@@ -104,6 +122,15 @@
 }
 
 @layer components {
+  /* 小さい見出し。字間を開けると、小ささが「弱さ」ではなく「意図」に見える。 */
+  .eyebrow {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
   /* 新しい行やカンペが増えたときに、目が追える程度だけ動かす。 */
   .enter {
     animation: enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;

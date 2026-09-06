@@ -35,10 +35,11 @@ function useElapsed(active: boolean): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function speakerTone(speaker: Speaker | undefined): { chip: string; bar: string } {
-  if (speaker === "self") return { chip: "bg-self-soft text-self", bar: "bg-self" };
-  if (speaker === "other") return { chip: "bg-other-soft text-other", bar: "bg-other" };
-  return { chip: "bg-line text-muted", bar: "bg-faint" };
+/** 話者ごとの色。線の色にも使うので、変数名そのものも返す。 */
+function speakerTone(speaker: Speaker | undefined): { text: string; varName: string } {
+  if (speaker === "self") return { text: "text-self", varName: "--self" };
+  if (speaker === "other") return { text: "text-other", varName: "--other" };
+  return { text: "text-faint", varName: "--faint" };
 }
 
 export default function RecordPage() {
@@ -297,156 +298,155 @@ export default function RecordPage() {
         </section>
       )}
 
-      {/* ── 本体：カンペを主役に、文字起こしを脇に ───────── */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        {/* 文字起こし */}
-        <section className="flex flex-col rounded-2xl border border-line bg-surface shadow-card">
-          <h2 className="border-b border-line px-5 py-3.5 text-sm font-semibold">文字起こし</h2>
-          <div
-            ref={transcriptRef}
-            className="h-[30rem] space-y-3 overflow-y-auto px-5 py-4 text-sm leading-relaxed"
-          >
+      {/* ── 本体：カンペが主役、文字起こしは脇の柱 ─────── */}
+      <div className="grid gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+        {/* 文字起こし（脇の柱） */}
+        <section className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface/60">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <h2 className="eyebrow text-faint">文字起こし</h2>
+            {segments.length > 0 && (
+              <span className="font-mono text-[11px] tabular-nums text-faint">{segments.length}</span>
+            )}
+          </div>
+
+          <div ref={transcriptRef} className="h-[34rem] overflow-y-auto px-4 py-3">
             {segments.length === 0 && interimEntries.length === 0 && (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-                <Mic size={22} className="text-faint" aria-hidden />
-                <p className="text-sm text-faint">
-                  「開始」を押すと、
-                  <br />
-                  話した内容がここに流れます
-                </p>
-              </div>
+              <p className="pt-16 text-center text-[13px] leading-relaxed text-faint">
+                話した内容が
+                <br />
+                ここに流れます
+              </p>
             )}
 
-            {segments.map((segment) => {
-              const who = speakerLabel(segment.speaker);
-              const tone = speakerTone(segment.speaker);
-              return (
-                <div key={segment.id} className="enter flex gap-2.5">
-                  <span className={`mt-1 w-0.5 shrink-0 rounded-full ${tone.bar}`} aria-hidden />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
+            <div className="space-y-3">
+              {segments.map((segment) => {
+                const who = speakerLabel(segment.speaker);
+                const tone = speakerTone(segment.speaker);
+                return (
+                  <div key={segment.id} className="enter">
+                    <div className="flex items-baseline gap-1.5">
                       {who && (
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${tone.chip}`}>
-                          {who}
-                        </span>
+                        <span className={`eyebrow ${tone.text}`}>{who}</span>
                       )}
-                      <span className="font-mono text-[11px] tabular-nums text-faint">
+                      <span className="font-mono text-[10px] tabular-nums text-faint">
                         {formatTime(segment.at)}
                       </span>
                     </div>
-                    <p className="mt-1 text-[15px] leading-relaxed text-ink">{segment.text}</p>
+                    <p className="mt-1 border-l-2 pl-2.5 text-[13px] leading-[1.7] text-muted"
+                       style={{ borderColor: `rgb(var(${tone.varName}) / 0.5)` }}>
+                      {segment.text}
+                    </p>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
 
-            {interimEntries.map(([speaker, text]) => {
-              const who = speakerLabel(speaker as Speaker);
-              const tone = speakerTone(speaker as Speaker);
-              return (
-                <div key={speaker} className="flex gap-2.5 opacity-60">
-                  <span className={`mt-1 w-0.5 shrink-0 rounded-full ${tone.bar}`} aria-hidden />
-                  <div className="min-w-0">
-                    {who && <span className="text-[11px] font-semibold text-faint">{who}</span>}
-                    <p className="mt-0.5 text-muted">{text}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* 質問と回答案（カンペ） */}
-        <div className="space-y-4">
-          <section className="rounded-2xl border border-self/30 bg-surface shadow-card">
-            <h2 className="flex items-center gap-2 border-b border-line px-5 py-3.5 text-sm font-semibold">
-              <MessageCircleQuestion size={16} className="text-self" aria-hidden />
-              あなたへの質問と回答案
-              {questions.length > 0 && (
-                <span className="rounded-full bg-self px-2 py-0.5 text-[11px] font-bold text-white">
-                  {questions.length}
-                </span>
-              )}
-            </h2>
-
-            <div className="max-h-[30rem] space-y-3 overflow-y-auto px-5 py-4">
-              {questions.length === 0 && (
-                <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
-                  <Sparkles size={22} className="text-faint" aria-hidden />
-                  <p className="text-sm leading-relaxed text-faint">
-                    相手から質問が出ると、
-                    <br />
-                    そのまま読み上げられる回答案がここに出ます
-                  </p>
-                </div>
-              )}
-
-              {questions.map((item, index) => {
-                // 一番新しいものだけ強く光らせる。会議中はそれだけ読めばいい。
-                const newest = index === 0;
+              {interimEntries.map(([speaker, text]) => {
+                const tone = speakerTone(speaker as Speaker);
                 return (
-                  <article
-                    key={item.id}
-                    className={`enter rounded-2xl border p-4 transition-colors ${
-                      newest
-                        ? "border-self/50 bg-self-soft shadow-lift"
-                        : "border-line bg-raised opacity-80"
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <span
-                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${newest ? "bg-self" : "bg-faint"}`}
-                        aria-hidden
-                      />
-                      <p className="text-[13px] font-bold leading-snug text-self">{item.question}</p>
-                    </div>
-
-                    {/* ここは声に出して読む所。行間と文字を大きめに取る。 */}
-                    <p className="mt-2.5 whitespace-pre-wrap pl-3.5 text-[17px] leading-[1.85] tracking-tight text-ink">
-                      {item.answer}
+                  <div key={speaker} className="opacity-50">
+                    <p className="border-l-2 pl-2.5 text-[13px] leading-[1.7] text-faint"
+                       style={{ borderColor: `rgb(var(${tone.varName}) / 0.3)` }}>
+                      {text}
                     </p>
-
-                    <p className="mt-2.5 pl-3.5 font-mono text-[11px] tabular-nums text-faint">
-                      {formatTime(item.at)}
-                    </p>
-                  </article>
+                  </div>
                 );
               })}
             </div>
-          </section>
+          </div>
+        </section>
 
-          {/* 決定事項・宿題事項 */}
-          <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
-            <h2 className="text-sm font-semibold">決定事項・宿題事項</h2>
+        {/* カンペ（主役） */}
+        <section className="flex flex-col overflow-hidden rounded-3xl border border-self/25 bg-surface shadow-lift">
+          <div className="flex items-center gap-2.5 border-b border-line px-6 py-4">
+            <MessageCircleQuestion size={17} className="text-self" aria-hidden />
+            <h2 className="text-[15px] font-bold tracking-tight">あなたへの質問と回答案</h2>
+            {questions.length > 0 && (
+              <span className="ml-auto font-mono text-xs tabular-nums text-faint">
+                {questions.length}件
+              </span>
+            )}
+          </div>
 
-            <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              {(
-                [
-                  { title: "決まったこと", items: decisions, tone: "text-other", soft: "bg-other-soft" },
-                  { title: "やること", items: todos, tone: "text-self", soft: "bg-self-soft" },
-                ] as const
-              ).map(({ title, items, tone, soft }) => (
-                <div key={title}>
-                  <h3 className={`text-xs font-semibold ${tone}`}>{title}</h3>
-                  <ul className="mt-2 space-y-1.5 text-sm">
-                    {items.length === 0 && <li className="text-faint">まだありません</li>}
-                    {items.map((item) => (
-                      <li key={item.id} className={`enter rounded-lg px-3 py-2 text-ink ${soft}`}>
-                        {item.text}
-                        {(item.owner || item.due) && (
-                          <span className="mt-0.5 block text-xs text-muted">
-                            {[item.owner, item.due].filter(Boolean).join(" / ")}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
+          <div className="h-[34rem] overflow-y-auto px-6 py-5">
+            {questions.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+                <Sparkles size={26} className="text-faint" aria-hidden />
+                <p className="max-w-xs text-[15px] leading-[1.9] text-faint">
+                  相手から質問が出ると、
+                  <br />
+                  そのまま読み上げられる回答案が
+                  <br />
+                  ここに大きく出ます
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {questions.map((item, index) => {
+                  // 一番新しいものだけ主役。会議中はそれだけ読めばいい。
+                  const newest = index === 0;
+                  return (
+                    <article key={item.id} className={`enter ${newest ? "" : "opacity-55"}`}>
+                      <div className="flex items-baseline gap-2">
+                        <span className="eyebrow text-self">
+                          {newest ? "いま聞かれていること" : `${index + 1}つ前`}
+                        </span>
+                        <span className="font-mono text-[10px] tabular-nums text-faint">
+                          {formatTime(item.at)}
+                        </span>
+                      </div>
+
+                      <p className="mt-2 text-[15px] font-bold leading-snug text-ink">
+                        {item.question}
+                      </p>
+
+                      {/* ここは声に出して読む所。台本として読める大きさに取る。 */}
+                      <div
+                        className={`mt-3 rounded-2xl border px-5 py-4 ${
+                          newest ? "border-self/40 bg-self-soft" : "border-line bg-raised"
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap text-[19px] leading-[1.95] tracking-tight text-ink">
+                          {item.answer}
+                        </p>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
+
+      {/* ── 決定事項・宿題事項（下に一列） ───────────────── */}
+      <section className="rounded-2xl border border-line bg-surface/60 px-5 py-4">
+        <h2 className="eyebrow text-faint">決定事項・宿題事項</h2>
+        <div className="mt-3 grid gap-5 sm:grid-cols-2">
+          {(
+            [
+              { title: "決まったこと", items: decisions, text: "text-other", soft: "bg-other-soft" },
+              { title: "やること", items: todos, text: "text-self", soft: "bg-self-soft" },
+            ] as const
+          ).map(({ title, items, text, soft }) => (
+            <div key={title}>
+              <h3 className={`text-xs font-bold ${text}`}>{title}</h3>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                {items.length === 0 && <li className="text-faint">まだありません</li>}
+                {items.map((item) => (
+                  <li key={item.id} className={`enter rounded-xl px-3.5 py-2.5 text-ink ${soft}`}>
+                    {item.text}
+                    {(item.owner || item.due) && (
+                      <span className="mt-1 block font-mono text-[11px] text-muted">
+                        {[item.owner, item.due].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
