@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { list, put } from "@vercel/blob";
+import { get, list, put } from "@vercel/blob";
 
 /**
  * 保存したセッションを、この端末の外（Vercel Blob）にも1部だけ残す。
@@ -34,10 +34,12 @@ function hasValidSecret(req: VercelRequest): boolean {
   return req.headers["x-sync-key"] === secret;
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`blob fetch failed: ${response.status}`);
-  return response.json();
+/** 非公開ストアなので、都度 get() で認証付きに読む（生URLへの素の fetch では読めない）。 */
+async function readBlob(pathname: string): Promise<unknown> {
+  const result = await get(pathname, { access: "private" });
+  if (!result) return null;
+  const text = await new Response(result.stream).text();
+  return JSON.parse(text);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -50,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     }
     try {
       await put(`${PREFIX}${id}.json`, JSON.stringify(body), {
-        access: "public",
+        access: "private",
         addRandomSuffix: false,
         allowOverwrite: true,
         contentType: "application/json",
@@ -72,20 +74,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
     try {
       if (id) {
-        const { blobs } = await list({ prefix: `${PREFIX}${id}.json`, limit: 1 });
-        const found = blobs[0];
-        if (!found) {
+        const data = await readBlob(`${PREFIX}${id}.json`);
+        if (!data) {
           res.status(404).send("見つかりません。");
           return;
         }
-        res.status(200).json(await fetchJson(found.url));
+        res.status(200).json(data);
         return;
       }
 
       const { blobs } = await list({ prefix: PREFIX });
       const items = await Promise.all(
         blobs.map(async (b) => {
-          const data = (await fetchJson(b.url)) as StoredSession;
+          const data = ((await readBlob(b.pathname)) ?? {}) as StoredSession;
           return {
             id: data.id,
             label: data.label,
