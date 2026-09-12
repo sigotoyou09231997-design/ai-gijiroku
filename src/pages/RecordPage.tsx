@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Check,
+  CheckCircle2,
   ChevronDown,
+  Copy,
+  ListChecks,
   Loader2,
   MessageCircleQuestion,
   Mic,
@@ -47,6 +51,7 @@ export default function RecordPage() {
   const live = useLiveSession();
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const { segments, interim } = live;
   const interimEntries = Object.entries(interim).filter(([, text]) => Boolean(text));
@@ -69,6 +74,16 @@ export default function RecordPage() {
   async function handleFinish() {
     const id = await live.finish();
     if (id) navigate(`/sessions/${id}`);
+  }
+
+  async function handleCopyAnswer(item: { id: string; answer: string }) {
+    try {
+      await navigator.clipboard.writeText(item.answer);
+      setCopiedId(item.id);
+      window.setTimeout(() => setCopiedId((current) => (current === item.id ? null : current)), 1800);
+    } catch {
+      // クリップボードが使えない環境では、押しても何も起きないだけにする。
+    }
   }
 
   const decisions = live.actions.filter((action) => action.kind === "decision");
@@ -159,6 +174,15 @@ export default function RecordPage() {
 
             <span className="rounded-full border border-line px-2.5 py-1 text-[11px] text-faint">
               {live.label}
+            </span>
+
+            <span className="flex items-center gap-1.5 rounded-full bg-self-soft px-3 py-1.5 text-xs font-bold text-self">
+              <CheckCircle2 size={13} aria-hidden />
+              決定事項 {decisions.length}
+            </span>
+            <span className="flex items-center gap-1.5 rounded-full bg-other-soft px-3 py-1.5 text-xs font-bold text-other">
+              <ListChecks size={13} aria-hidden />
+              タスク {todos.length}
             </span>
 
             {live.analyzing && (
@@ -303,7 +327,7 @@ export default function RecordPage() {
         {/* 文字起こし（脇の柱） */}
         <section className="flex flex-col overflow-hidden rounded-3xl border border-line bg-surface">
           <div className="flex items-center justify-between border-b border-line px-6 py-4">
-            <h2 className="text-[15px] font-bold tracking-tight">文字起こし</h2>
+            <h2 className="text-[15px] font-bold tracking-tight">ライブ文字起こし</h2>
             {segments.length > 0 && (
               <span className="font-mono text-[11px] tabular-nums text-faint">{segments.length}</span>
             )}
@@ -318,36 +342,29 @@ export default function RecordPage() {
               </p>
             )}
 
-            <div className="space-y-3.5">
+            <div className="space-y-4">
               {segments.map((segment) => {
                 const who = speakerLabel(segment.speaker);
                 const tone = speakerTone(segment.speaker);
                 return (
                   <div key={segment.id} className="enter">
-                    <div className="flex items-baseline gap-1.5">
-                      {who && (
-                        <span className={`eyebrow ${tone.text}`}>{who}</span>
-                      )}
+                    <div className="flex items-baseline gap-2">
+                      {who && <span className={`text-[13px] font-bold ${tone.text}`}>{who}</span>}
                       <span className="font-mono text-[11px] tabular-nums text-faint">
                         {formatTime(segment.at)}
                       </span>
                     </div>
-                    <p className="mt-1 border-l-2 pl-3 text-[15px] leading-[1.75] text-ink"
-                       style={{ borderColor: `rgb(var(${tone.varName}) / 0.5)` }}>
-                      {segment.text}
-                    </p>
+                    <p className="mt-0.5 text-[15px] leading-[1.75] text-ink">{segment.text}</p>
                   </div>
                 );
               })}
 
               {interimEntries.map(([speaker, text]) => {
-                const tone = speakerTone(speaker as Speaker);
+                const who = speakerLabel(speaker as Speaker);
                 return (
                   <div key={speaker} className="opacity-50">
-                    <p className="border-l-2 pl-3 text-[15px] leading-[1.75] text-faint"
-                       style={{ borderColor: `rgb(var(${tone.varName}) / 0.3)` }}>
-                      {text}
-                    </p>
+                    {who && <span className="text-[13px] font-bold text-faint">{who}</span>}
+                    <p className="mt-0.5 text-[15px] leading-[1.75] text-faint">{text}</p>
                   </div>
                 );
               })}
@@ -408,6 +425,23 @@ export default function RecordPage() {
                         <p className="whitespace-pre-wrap text-[18px] leading-[1.9] tracking-tight text-ink">
                           {item.answer}
                         </p>
+                        <button
+                          type="button"
+                          className="mt-3 flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-muted transition-colors hover:bg-line/60 hover:text-ink"
+                          onClick={() => void handleCopyAnswer(item)}
+                        >
+                          {copiedId === item.id ? (
+                            <>
+                              <Check size={13} aria-hidden />
+                              コピーしました
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={13} aria-hidden />
+                              この回答案をコピー
+                            </>
+                          )}
+                        </button>
                       </div>
                     </article>
                   );

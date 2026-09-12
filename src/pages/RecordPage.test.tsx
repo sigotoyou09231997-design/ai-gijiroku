@@ -33,7 +33,7 @@ describe("RecordPage", () => {
         <RecordPage />
       </MemoryRouter>,
     );
-    expect(screen.getByText("文字起こし")).toBeTruthy();
+    expect(screen.getByText("ライブ文字起こし")).toBeTruthy();
     expect(screen.getByText("あなたへの質問と回答案")).toBeTruthy();
     expect(screen.getByText("決定事項・宿題事項")).toBeTruthy();
   });
