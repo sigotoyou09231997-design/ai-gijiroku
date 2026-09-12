@@ -2,13 +2,32 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>AI議事録ツール</title>
+
+    <!-- スマホでホーム画面に追加したときのアイコン・見え方。 -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="AI議事録" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!--
+      OSの配色に合わせて、ブラウザのアドレスバー・ステータスバーの色も揃える。
+      「OSに合わせる」以外を手で選んでいるときは、下のスクリプトが両方のcontentを
+      選んだ側の色で上書きする（画面の配色と状態バーの色がずれないように）。
+    -->
+    <meta name="theme-color" id="theme-color-dark" content="#0a0a0e" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" id="theme-color-light" content="#f4f4f7" media="(prefers-color-scheme: light)" />
       <script>
       // 画面が描かれる前に配色を決める。あとから当てると一瞬白く光るため。
       try {
         var t = localStorage.getItem("ai-gijiroku.theme");
-        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+        if (t === "light" || t === "dark") {
+          document.documentElement.setAttribute("data-theme", t);
+          var hex = t === "dark" ? "#0a0a0e" : "#f4f4f7";
+          document.getElementById("theme-color-dark").setAttribute("content", hex);
+          document.getElementById("theme-color-light").setAttribute("content", hex);
+        }
       } catch (e) {}
     </script>
   </head>

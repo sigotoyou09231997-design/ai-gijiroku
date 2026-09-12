@@ -31,4 +31,23 @@ describe("webSpeechProvider", () => {
     expect(info.available).toBe(false);
     expect(info.reason).toBeTruthy();
   });
+
+  it("iPhoneでは「別のブラウザで」ではなく、OSの制約だと分かる理由にする", () => {
+    // iOSはどのブラウザもSafari本体のエンジンを使う決まりで、Web Speech APIが載っていない。
+    // 「Chromeで開いてください」は効かないので、案内を書き分けているかを確かめる。
+    const original = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      value:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      configurable: true,
+    });
+    try {
+      const info = webSpeechProvider.info();
+      expect(info.available).toBe(false);
+      expect(info.reason).not.toContain("Chrome");
+      expect(info.reason).toContain("iPhone");
+    } finally {
+      Object.defineProperty(navigator, "userAgent", { value: original, configurable: true });
+    }
+  });
 });

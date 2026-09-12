@@ -60,10 +60,23 @@ async function fetchToken(): Promise<TokenResponse> {
   return data;
 }
 
-/** ブラウザが送れる音の形。環境によって使える形が違うので、上から順に試す。 */
-function pickMimeType(): string | undefined {
+/**
+ * ブラウザが送れる音の形。環境によって使える形が違うので、上から順に試す。
+ *
+ * Safari（iPhone・iPadは種類によらずこのエンジン）は webm/ogg にまったく対応しておらず、
+ * 対応するのは mp4（AAC）だけ。ここに無いと iPhone では毎回「音声の送信に対応していません」
+ * で止まり、Deepgram/Azureのキーを設定しても iPhone だけ動かないことになる。
+ * Deepgram 側は送られてきた音から形式を自動で見分けるので、mp4 を足すだけで済む。
+ */
+export function pickMimeType(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4",
+  ];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 

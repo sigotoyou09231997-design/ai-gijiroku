@@ -7,6 +7,10 @@
 
 const STORAGE_KEY = "ai-gijiroku.theme";
 
+/** index.html の --canvas と揃えた値。スマホの状態バー・アドレスバーの色に使う。 */
+const CANVAS_DARK = "#0a0a0e";
+const CANVAS_LIGHT = "#f4f4f7";
+
 export type ThemeChoice = "auto" | "light" | "dark";
 
 export const THEME_LABELS: Record<ThemeChoice, string> = {
@@ -31,6 +35,15 @@ export function applyTheme(choice: ThemeChoice): void {
   const root = document.documentElement;
   if (choice === "auto") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", choice);
+
+  // OSに合わせているときはOS側の配色にそれぞれ合わせ、手で選んでいるときは
+  // 両方を選んだ側の色にそろえる（画面の配色とスマホの状態バーの色をずらさない）。
+  const dark = document.getElementById("theme-color-dark");
+  const light = document.getElementById("theme-color-light");
+  if (!dark || !light) return;
+  const forced = choice === "dark" ? CANVAS_DARK : choice === "light" ? CANVAS_LIGHT : null;
+  dark.setAttribute("content", forced ?? CANVAS_DARK);
+  light.setAttribute("content", forced ?? CANVAS_LIGHT);
 }
 
 export function saveTheme(choice: ThemeChoice): void {
