@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AiNotConfiguredError, analyzeTranscript } from "../lib/ai/client";
 import { contextWindow, shouldAnalyze } from "../lib/analysis/schedule";
-import { mergeActions, mergeQuestions } from "../lib/analysis/merge";
+import { mergeActions, mergeQuestions, mergeTerms } from "../lib/analysis/merge";
 import { newId, saveSession } from "../lib/db";
 import { generateSummary } from "../lib/sessionSummary";
 import {
@@ -16,7 +16,7 @@ import {
 import { getSpeechProvider, resolveSpeechProvider } from "../lib/speech";
 import type { Speaker, SpeechProvider, SpeechRecognizer, SpeechSource } from "../lib/speech";
 import { speakerLabel } from "../lib/types";
-import type { ActionItem, DetectedQuestion, MeetingSession, TranscriptSegment } from "../lib/types";
+import type { ActionItem, DetectedQuestion, DetectedTerm, MeetingSession, TranscriptSegment } from "../lib/types";
 
 export const SESSION_LABELS = ["打ち合わせ", "面接", "議事録"];
 
@@ -39,6 +39,7 @@ export interface LiveSession {
   interim: InterimBySpeaker;
   questions: DetectedQuestion[];
   actions: ActionItem[];
+  terms: DetectedTerm[];
   analyzing: boolean;
   speechError: string | null;
   aiError: string | null;
@@ -78,6 +79,7 @@ export function useLiveSession(): LiveSession {
   const [interim, setInterim] = useState<InterimBySpeaker>({});
   const [questions, setQuestions] = useState<DetectedQuestion[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
+  const [terms, setTerms] = useState<DetectedTerm[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -91,6 +93,7 @@ export function useLiveSession(): LiveSession {
   const segmentsRef = useRef<TranscriptSegment[]>([]);
   const questionsRef = useRef<DetectedQuestion[]>([]);
   const actionsRef = useRef<ActionItem[]>([]);
+  const termsRef = useRef<DetectedTerm[]>([]);
   /** すでにAIへ渡した確定ぶん（文脈として渡す）。 */
   const analyzedRef = useRef("");
   /** まだAIへ渡していない確定ぶん。 */
@@ -169,6 +172,7 @@ export function useLiveSession(): LiveSession {
         const result = await analyzeTranscript({ context, recent, label: labelRef.current }, Date.now());
         const mergedQuestions = mergeQuestions(questionsRef.current, result.questions);
         const mergedActions = mergeActions(actionsRef.current, result.actions);
+        const mergedTerms = mergeTerms(termsRef.current, result.terms);
         if (mergedQuestions.added.length > 0) {
           questionsRef.current = mergedQuestions.items;
           setQuestions(mergedQuestions.items);
@@ -176,6 +180,10 @@ export function useLiveSession(): LiveSession {
         if (mergedActions.added.length > 0) {
           actionsRef.current = mergedActions.items;
           setActions(mergedActions.items);
+        }
+        if (mergedTerms.added.length > 0) {
+          termsRef.current = mergedTerms.items;
+          setTerms(mergedTerms.items);
         }
         setAiError(null);
       } catch (error) {
@@ -216,6 +224,7 @@ export function useLiveSession(): LiveSession {
     segmentsRef.current = [];
     questionsRef.current = [];
     actionsRef.current = [];
+    termsRef.current = [];
     analyzedRef.current = "";
     pendingRef.current = "";
     inFlightRef.current = false;
@@ -226,6 +235,7 @@ export function useLiveSession(): LiveSession {
     setSegments([]);
     setQuestions([]);
     setActions([]);
+    setTerms([]);
     setInterim({});
     setSpeechError(null);
     setAiError(null);
@@ -297,6 +307,7 @@ export function useLiveSession(): LiveSession {
       segments: segmentsRef.current,
       questions: questionsRef.current,
       actions: actionsRef.current,
+      terms: termsRef.current,
     };
     await saveSession(session);
 
@@ -317,6 +328,7 @@ export function useLiveSession(): LiveSession {
     interim,
     questions,
     actions,
+    terms,
     analyzing,
     speechError,
     aiError,

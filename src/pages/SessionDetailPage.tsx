@@ -152,6 +152,20 @@ export default function SessionDetailPage() {
         </div>
       </section>
 
+      {session.terms.length > 0 && (
+        <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
+          <h2 className="text-sm font-semibold text-ink">会話中に検知した気になる用語</h2>
+          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+            {session.terms.map((item) => (
+              <li key={item.id} className="rounded-lg bg-raised px-3 py-2">
+                <p className="text-sm font-semibold text-ink">{item.term}</p>
+                <p className="mt-0.5 text-sm leading-relaxed text-muted">{item.explanation}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
         <h2 className="text-sm font-semibold text-ink">文字起こし全文</h2>
         <div className="mt-3 max-h-96 space-y-1 overflow-y-auto rounded-lg bg-raised p-3 text-sm leading-relaxed">

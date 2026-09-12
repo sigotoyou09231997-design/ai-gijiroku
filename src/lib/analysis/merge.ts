@@ -1,4 +1,4 @@
-import type { ActionItem, DetectedQuestion } from "../types";
+import type { ActionItem, DetectedQuestion, DetectedTerm } from "../types";
 
 /**
  * AIは少し前の会話も一緒に見ているので、同じ質問・同じ決定事項を何度も返してくる。
@@ -41,6 +41,19 @@ export function mergeQuestions(
   for (const candidate of incoming) {
     if (!candidate.question.trim()) continue;
     if (items.some((item) => isSameText(item.question, candidate.question))) continue;
+    items.push(candidate);
+    added.push(candidate);
+  }
+  return { items, added };
+}
+
+/** 気になる用語も同じ考え方で足す（同じ用語は二重に出さない）。 */
+export function mergeTerms(existing: DetectedTerm[], incoming: DetectedTerm[]): MergeResult<DetectedTerm> {
+  const items = [...existing];
+  const added: DetectedTerm[] = [];
+  for (const candidate of incoming) {
+    if (!candidate.term.trim()) continue;
+    if (items.some((item) => isSameText(item.term, candidate.term))) continue;
     items.push(candidate);
     added.push(candidate);
   }

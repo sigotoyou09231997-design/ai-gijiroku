@@ -1,5 +1,5 @@
 import { newId } from "../db";
-import type { ActionItem, DetectedQuestion, SessionSummary } from "../types";
+import type { ActionItem, DetectedQuestion, DetectedTerm, SessionSummary } from "../types";
 
 /**
  * AI呼び出しの窓口。
@@ -38,9 +38,15 @@ interface RawAction {
   due?: unknown;
 }
 
+interface RawTerm {
+  term?: unknown;
+  explanation?: unknown;
+}
+
 interface RawAnalyze {
   questions?: unknown;
   actions?: unknown;
+  terms?: unknown;
 }
 
 interface RawSummary {
@@ -101,9 +107,10 @@ export interface AnalyzeInput {
 export interface AnalyzeOutput {
   questions: DetectedQuestion[];
   actions: ActionItem[];
+  terms: DetectedTerm[];
 }
 
-/** 会話の増えたぶんから、自分への質問と、決定事項・宿題事項を拾う。 */
+/** 会話の増えたぶんから、自分への質問と、決定事項・宿題事項、気になる用語を拾う。 */
 export async function analyzeTranscript(input: AnalyzeInput, at: number): Promise<AnalyzeOutput> {
   const raw = await postJson<RawAnalyze>(ANALYZE_URL, input);
 
@@ -129,7 +136,17 @@ export async function analyzeTranscript(input: AnalyzeInput, at: number): Promis
     }))
     .filter((item) => item.text.length > 0);
 
-  return { questions, actions };
+  const terms: DetectedTerm[] = (Array.isArray(raw.terms) ? raw.terms : [])
+    .map((item) => item as RawTerm)
+    .map((item) => ({
+      id: newId(),
+      term: asString(item.term),
+      explanation: asString(item.explanation),
+      at,
+    }))
+    .filter((item) => item.term.length > 0 && item.explanation.length > 0);
+
+  return { questions, actions, terms };
 }
 
 export interface SummarizeInput {

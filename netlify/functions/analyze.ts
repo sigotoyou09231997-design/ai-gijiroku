@@ -80,7 +80,7 @@ const SYSTEM = `あなたは会議・面接に同席して、その場で手元�
 
 「直前までの会話」は文脈を掴むためだけに読み、拾うのは「今回あらたに増えたぶん」に出てきたものだけにしてください。
 
-拾うものは2種類で、どちらも常に見てください。
+拾うものは3種類で、どれも常に見てください。
 
 1. この文字起こしを聞いている本人に向けられた質問
    - **[相手] の行にある疑問文**のうち、本人に答えを求めているものだけを拾います。
@@ -93,11 +93,18 @@ const SYSTEM = `あなたは会議・面接に同席して、その場で手元�
    - まだ決まっていない案・検討中の話は拾いません。
    - 担当や期限が会話に出ていれば、出てきた表現のまま入れます（「今週中」など）。
 
+3. 聞き慣れない用語・固有名詞（term）
+   - 専門用語・略語・社内用語・サービス名・指標名など、知らないと会話について
+     いけなさそうなものだけを拾います。日常語や、前後の文脈で意味が明らかな
+     言葉は拾いません。
+   - 説明（explanation）は1〜2文で、簡潔に。**自信を持って説明できないものは、
+     無理に埋めずそもそも拾わないでください**（不確かな説明を出さないため）。
+
 該当するものが無ければ、空の配列を返してください。無理に埋めないでください。`;
 
 const TOOL: ToolSpec = {
   name: "record_findings",
-  description: "会話から拾った質問と回答案、決定事項・宿題事項を記録する。",
+  description: "会話から拾った質問と回答案、決定事項・宿題事項、気になる用語を記録する。",
   input_schema: {
     type: "object",
     properties: {
@@ -127,8 +134,20 @@ const TOOL: ToolSpec = {
           required: ["kind", "text"],
         },
       },
+      terms: {
+        type: "array",
+        description: "聞き慣れない用語・固有名詞とその説明。無ければ空配列。",
+        items: {
+          type: "object",
+          properties: {
+            term: { type: "string", description: "会話に出てきた用語・固有名詞そのもの" },
+            explanation: { type: "string", description: "1〜2文の簡潔な説明。自信が無ければ載せない" },
+          },
+          required: ["term", "explanation"],
+        },
+      },
     },
-    required: ["questions", "actions"],
+    required: ["questions", "actions", "terms"],
   },
 };
 
@@ -162,7 +181,7 @@ export default async function handler(request: Request): Promise<Response> {
   const label = typeof body.label === "string" && body.label ? body.label : "打ち合わせ";
 
   if (!recent) {
-    return json({ questions: [], actions: [] });
+    return json({ questions: [], actions: [], terms: [] });
   }
 
   const userText = [
@@ -180,6 +199,7 @@ export default async function handler(request: Request): Promise<Response> {
     return json({
       questions: Array.isArray(result.questions) ? result.questions : [],
       actions: Array.isArray(result.actions) ? result.actions : [],
+      terms: Array.isArray(result.terms) ? result.terms : [],
     });
   } catch (error) {
     if (error instanceof MissingKeyError) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isSameText, mergeActions, mergeQuestions, normalize } from "./merge";
-import type { ActionItem, DetectedQuestion } from "../types";
+import { isSameText, mergeActions, mergeQuestions, mergeTerms, normalize } from "./merge";
+import type { ActionItem, DetectedQuestion, DetectedTerm } from "../types";
 
 function question(id: string, text: string): DetectedQuestion {
   return { id, question: text, answer: "回答案", at: 0 };
@@ -8,6 +8,10 @@ function question(id: string, text: string): DetectedQuestion {
 
 function action(id: string, kind: ActionItem["kind"], text: string): ActionItem {
   return { id, kind, text, at: 0 };
+}
+
+function term(id: string, text: string): DetectedTerm {
+  return { id, term: text, explanation: "説明", at: 0 };
 }
 
 describe("normalize", () => {
@@ -74,5 +78,26 @@ describe("mergeActions", () => {
     const result = mergeActions(existing, [action("2", "decision", "来週までに見積もりを出す。")]);
     expect(result.items).toHaveLength(1);
     expect(result.added).toHaveLength(0);
+  });
+});
+
+describe("mergeTerms", () => {
+  it("同じ用語は足さない", () => {
+    const existing = [term("1", "オンボーディング")];
+    const result = mergeTerms(existing, [term("2", "オンボーディング")]);
+    expect(result.items).toHaveLength(1);
+    expect(result.added).toHaveLength(0);
+  });
+
+  it("新しい用語は足して、足したものを返す", () => {
+    const existing = [term("1", "オンボーディング")];
+    const result = mergeTerms(existing, [term("2", "チャーンレート")]);
+    expect(result.items).toHaveLength(2);
+    expect(result.added.map((item) => item.id)).toEqual(["2"]);
+  });
+
+  it("空の用語は捨てる", () => {
+    const result = mergeTerms([], [term("1", "   ")]);
+    expect(result.items).toHaveLength(0);
   });
 });

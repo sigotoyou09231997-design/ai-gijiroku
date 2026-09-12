@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  BookOpen,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -481,6 +482,24 @@ export default function RecordPage() {
           ))}
         </div>
       </section>
+
+      {/* ── 気になる用語（聞き慣れない専門用語・固有名詞の説明） ─── */}
+      {live.terms.length > 0 && (
+        <section className="rounded-2xl border border-line bg-surface/60 px-5 py-4">
+          <h2 className="flex items-center gap-1.5 eyebrow text-faint">
+            <BookOpen size={12} aria-hidden />
+            気になる用語
+          </h2>
+          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+            {live.terms.map((item) => (
+              <li key={item.id} className="enter rounded-xl bg-raised px-3.5 py-2.5">
+                <p className="text-sm font-bold text-ink">{item.term}</p>
+                <p className="mt-0.5 text-sm leading-relaxed text-muted">{item.explanation}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

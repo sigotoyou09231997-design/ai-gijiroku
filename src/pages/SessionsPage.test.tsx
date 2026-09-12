@@ -30,6 +30,7 @@ describe("過去のセッションの画面", () => {
       segments: [{ id: "g1", text: "本日はよろしくお願いします", at: 0 }],
       questions: [{ id: "q1", question: "志望動機は", answer: "こう答えます", at: 0 }],
       actions: [{ id: "a1", kind: "todo", text: "職務経歴書を送る", at: 0 }],
+      terms: [{ id: "t1", term: "SPA", explanation: "単一のHTMLで画面遷移するアプリの作り方", at: 0 }],
       summary: { overview: "面接の1次でした", points: ["自己紹介"], decisions: [], todos: ["職務経歴書を送る"] },
     };
     await saveSession(session);
@@ -55,6 +56,8 @@ describe("過去のセッションの画面", () => {
     expect(await screen.findByText("面接の1次でした")).toBeTruthy();
     expect(screen.getByText("志望動機は")).toBeTruthy();
     expect(screen.getByText("会話中に検知した決定事項・宿題事項")).toBeTruthy();
+    expect(screen.getByText("会話中に検知した気になる用語")).toBeTruthy();
+    expect(screen.getByText("SPA")).toBeTruthy();
     expect(screen.getByText("本日はよろしくお願いします")).toBeTruthy();
   });
 

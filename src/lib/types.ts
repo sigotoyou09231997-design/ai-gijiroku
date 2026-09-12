@@ -27,6 +27,16 @@ export interface DetectedQuestion {
   at: number;
 }
 
+/** 会話に出てきた、聞き慣れない用語・固有名詞とその説明。 */
+export interface DetectedTerm {
+  id: string;
+  term: string;
+  /** AIの一般知識にもとづく説明。ネット検索はしていない。 */
+  explanation: string;
+  /** epoch ms */
+  at: number;
+}
+
 /** 決まったこと（decision）／やることになったこと（todo）。 */
 export interface ActionItem {
   id: string;
@@ -65,6 +75,7 @@ export interface MeetingSession {
   segments: TranscriptSegment[];
   questions: DetectedQuestion[];
   actions: ActionItem[];
+  terms: DetectedTerm[];
   summary?: SessionSummary;
   /** 要約の生成に失敗したときの理由（画面に出して、あとで作り直せるようにする）。 */
   summaryError?: string;

@@ -29,8 +29,14 @@ export async function saveSession(session: MeetingSession): Promise<void> {
   await db.sessions.put(session);
 }
 
+/** 用語検出を足す前に保存されたセッションには terms が無いので、無ければ空配列で補う。 */
+function withTerms(session: MeetingSession): MeetingSession {
+  return session.terms ? session : { ...session, terms: [] };
+}
+
 export async function loadSession(id: string): Promise<MeetingSession | undefined> {
-  return db.sessions.get(id);
+  const session = await db.sessions.get(id);
+  return session ? withTerms(session) : session;
 }
 
 export async function deleteSession(id: string): Promise<void> {
@@ -39,5 +45,6 @@ export async function deleteSession(id: string): Promise<void> {
 
 /** 新しいものが上に来る並びで返す。 */
 export async function listSessions(): Promise<MeetingSession[]> {
-  return db.sessions.orderBy("startedAt").reverse().toArray();
+  const sessions = await db.sessions.orderBy("startedAt").reverse().toArray();
+  return sessions.map(withTerms);
 }
