@@ -17,6 +17,11 @@ describe("asStringList", () => {
     expect(asStringList(value)).toEqual(["要点1", "要点2"]);
   });
 
+  it("閉じタグの無い書きかけのタグが混ざっても、中身だけ残す", () => {
+    const value = '\n<parameter name="decisions">次回の面談は16日21時から実施する。';
+    expect(asStringList(value)).toEqual(["次回の面談は16日21時から実施する。"]);
+  });
+
   it("タグも無ければ、改行区切りの箇条書きとして扱う", () => {
     const value = "- 要点1\n・要点2\n3. 要点3";
     expect(asStringList(value)).toEqual(["要点1", "要点2", "要点3"]);

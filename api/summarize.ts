@@ -99,7 +99,12 @@ const TOOL: ToolSpec = {
     type: "object",
     properties: {
       overview: { type: "string", description: "何の話だったかの短いまとめ（1〜3文）" },
-      points: { type: "array", items: { type: "string" }, description: "要点（最大8項目）" },
+      points: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "要点（最大8項目）。相槌は無視してよいが、検討した選択肢・数字・情報など話された中身は具体的に書き出す。雑談だけで中身が無かった場合を除き、空配列にしないこと。",
+      },
       decisions: { type: "array", items: { type: "string" }, description: "決定事項" },
       todos: { type: "array", items: { type: "string" }, description: "宿題事項" },
     },

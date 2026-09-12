@@ -73,7 +73,9 @@ export function asStringList(value: unknown): string[] {
   if (typeof value === "string") {
     const tagged = [...value.matchAll(/<[^>/]+>([\s\S]*?)<\/[^>]+>/g)].map((m) => m[1].trim());
     if (tagged.length > 0) return tagged.filter((item) => item.length > 0);
+    // 閉じタグの無い、書きかけのタグの切れ端が混ざることもある。中身だけ残す。
     return value
+      .replace(/<[^>]*>/g, "")
       .split("\n")
       .map((line) => line.replace(/^[-•・\d.)　\s]+/, "").trim())
       .filter((line) => line.length > 0);
