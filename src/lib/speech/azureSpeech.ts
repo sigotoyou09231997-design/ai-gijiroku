@@ -1,4 +1,5 @@
 import * as SDK from "microsoft-cognitiveservices-speech-sdk";
+import { audioConstraints } from "./audioConstraints";
 import type {
   SpeechChunk,
   SpeechCreateOptions,
@@ -53,22 +54,48 @@ async function fetchToken(): Promise<TokenResponse> {
   return data;
 }
 
-/** 音源1本ぶんの認識。話者の札はここで貼る。 */
+/**
+ * 音源1本ぶんの認識。話者の札はここで貼る。
+ *
+ * マイクの掴み方は `SDK.AudioConfig.fromMicrophoneInput(deviceId)` に任せず、
+ * 自前で `getUserMedia` してから `AudioConfig.fromStreamInput` に渡す。
+ * SDK 側の `fromMicrophoneInput(deviceId)` は、渡した deviceId を無視して
+ * システムの既定の入力デバイスを掴んでしまうことがある（実際に、相手用に
+ * BlackHole を指定したのに自分のマイクと同じ内容が「相手」側にも出た）。
+ * 自前で `getUserMedia` すれば、Deepgram と同じ確実な経路でデバイスを選べる。
+ */
 class SourceRecognition {
   private recognizer: SDK.SpeechRecognizer | null = null;
+  private stream: MediaStream | null = null;
+  private stopped = false;
 
   constructor(
     private readonly source: SpeechSource,
     private readonly lang: string,
   ) {}
 
-  start(token: string, region: string, handlers: SpeechHandlers): void {
+  async start(token: string, region: string, handlers: SpeechHandlers): Promise<void> {
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(this.source) });
+    } catch {
+      handlers.onError(
+        this.source.deviceId
+          ? "選んだ入力デバイスを開けませんでした。抜き差ししていないか、一覧を更新して選び直してください。"
+          : "マイクを開けませんでした。ブラウザの設定でこのサイトのマイクを許可してください。",
+      );
+      return;
+    }
+    if (this.stopped) {
+      for (const track of stream.getTracks()) track.stop();
+      return;
+    }
+    this.stream = stream;
+
     const config = SDK.SpeechConfig.fromAuthorizationToken(token, region);
     config.speechRecognitionLanguage = this.lang;
 
-    const audio = this.source.deviceId
-      ? SDK.AudioConfig.fromMicrophoneInput(this.source.deviceId)
-      : SDK.AudioConfig.fromDefaultMicrophoneInput();
+    const audio = SDK.AudioConfig.fromStreamInput(stream);
 
     const recognizer = new SDK.SpeechRecognizer(config, audio);
     this.recognizer = recognizer;
@@ -103,12 +130,29 @@ class SourceRecognition {
   }
 
   stop(): void {
+    this.stopped = true;
     const recognizer = this.recognizer;
     this.recognizer = null;
-    if (!recognizer) return;
+    const stream = this.stream;
+    this.stream = null;
+    // fromStreamInput に渡した MediaStream は SDK が持ち主ではないので、
+    // ここで明示的に止めないとマイクを掴んだままになる。
+    const releaseStream = () => {
+      if (stream) for (const track of stream.getTracks()) track.stop();
+    };
+    if (!recognizer) {
+      releaseStream();
+      return;
+    }
     recognizer.stopContinuousRecognitionAsync(
-      () => recognizer.close(),
-      () => recognizer.close(),
+      () => {
+        recognizer.close();
+        releaseStream();
+      },
+      () => {
+        recognizer.close();
+        releaseStream();
+      },
     );
   }
 }
@@ -139,7 +183,8 @@ class AzureRecognizer implements SpeechRecognizer {
       if (this.stopped) return;
 
       this.sources = wanted.map((source) => new SourceRecognition(source, this.options.lang));
-      for (const s of this.sources) s.start(issued.token, issued.region, handlers);
+      // 1本ずつ独立して立ち上げる。片方が失敗しても、もう片方は動かす。
+      await Promise.all(this.sources.map((s) => s.start(issued.token, issued.region, handlers)));
 
       this.timer = setInterval(() => {
         void (async () => {
