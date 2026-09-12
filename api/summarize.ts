@@ -163,11 +163,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
   try {
     const result = await callClaude(SYSTEM, userText, TOOL);
+    // 配列で返るべきところが、稀にタグ付きの1本の文字列で返ることがある。
+    // ここで Array.isArray に当てはめて捨てると、画面側の頑丈なパース
+    // （asStringList）まで壊れた値が届かず、中身があるのに空扱いになって
+    // しまう。そのままの形で渡し、判定は画面側に任せる。
     res.status(200).json({
-      overview: typeof result.overview === "string" ? result.overview : "",
-      points: Array.isArray(result.points) ? result.points : [],
-      decisions: Array.isArray(result.decisions) ? result.decisions : [],
-      todos: Array.isArray(result.todos) ? result.todos : [],
+      overview: result.overview,
+      points: result.points,
+      decisions: result.decisions,
+      todos: result.todos,
     });
   } catch (error) {
     if (error instanceof MissingKeyError) {
