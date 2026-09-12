@@ -7,11 +7,17 @@
  * 業者は環境変数の入り具合で決まる（Deepgram を優先）。両方とも無ければ、
  * 画面はブラウザ標準の音声認識に落ちる。
  *
+ * 両方のキーが設定されている状態で、どちらを試すか切り替えたいことがある
+ * （例: 精度を比べるため一時的にAzureを試し、ダメなら戻す）。そのときは
+ * SPEECH_VENDOR に "azure" か "deepgram" を入れる。外せば既定の優先順位に戻る。
+ *
  * 環境変数（Netlify のサイト設定・ローカルは .env）:
  *   DEEPGRAM_API_KEY    … Deepgram を使うとき。
  *   DEEPGRAM_MODEL      … 任意。既定は nova-2。
  *   AZURE_SPEECH_KEY    … Azure を使うとき。
  *   AZURE_SPEECH_REGION … Azure を使うとき（例: japaneast）。
+ *   SPEECH_VENDOR       … 任意。"azure" か "deepgram" を入れると、両方の
+ *                          キーが揃っていてもそちらを優先する（お試し用）。
  */
 
 export type SpeechVendor = "deepgram" | "azure";
@@ -28,6 +34,9 @@ function json(body: unknown, status = 200): Response {
 }
 
 function pickVendor(): SpeechVendor | null {
+  const forced = process.env.SPEECH_VENDOR;
+  if (forced === "azure" && process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION) return "azure";
+  if (forced === "deepgram" && process.env.DEEPGRAM_API_KEY) return "deepgram";
   if (process.env.DEEPGRAM_API_KEY) return "deepgram";
   if (process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION) return "azure";
   return null;
