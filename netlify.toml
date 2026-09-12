@@ -5,8 +5,14 @@
 [functions]
   directory = "netlify/functions"
 
+# 画面は /api/... を叩く（Vercel と共通の呼び先。Vercelはこれをそのまま api/ に振る）。
+# Netlify側はこの1本で netlify/functions/ に付け替える。
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
 # SPA（react-router）なので、ファイルが無いパスは index.html に返す。
-# /.netlify/functions/* は Netlify 側が先に処理するのでここには来ない。
 [[redirects]]
   from = "/*"
   to = "/index.html"

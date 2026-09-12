@@ -23,7 +23,7 @@ export type {
  * 呼ぶ側はこの2つの関数しか知らないので、他の画面・処理には手を入れなくて済む。
  */
 
-const TOKEN_URL = "/.netlify/functions/speechToken";
+const TOKEN_URL = "/api/speechToken";
 
 /** 同期で取れる既定。Azure を確かめる前や、確かめられない場面（テスト）で使う。 */
 export function getSpeechProvider(): SpeechProvider {

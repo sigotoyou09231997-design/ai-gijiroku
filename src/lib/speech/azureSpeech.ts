@@ -21,7 +21,7 @@ import type {
  * 10分だけ有効な合鍵をもらって使い、切れる前に取り直す。
  */
 
-const TOKEN_URL = "/.netlify/functions/speechToken";
+const TOKEN_URL = "/api/speechToken";
 /** 合鍵を取り直す間隔。実際の有効期限（10分）より短くしておく。 */
 const REFRESH_MS = 8 * 60 * 1000;
 

@@ -19,7 +19,7 @@ import type {
  * 期限付きの合鍵をもらって使い、切れる前に取り直す。
  */
 
-const TOKEN_URL = "/.netlify/functions/speechToken";
+const TOKEN_URL = "/api/speechToken";
 const LISTEN_URL = "wss://api.deepgram.com/v1/listen";
 /** マイクの音を送る間隔。短いほど反応が早いが、細切れすぎると認識が落ちる。 */
 const CHUNK_MS = 250;

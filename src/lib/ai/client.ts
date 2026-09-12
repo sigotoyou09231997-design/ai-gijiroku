@@ -8,8 +8,8 @@ import type { ActionItem, DetectedQuestion, SessionSummary } from "../types";
  * 会話の中身はサーバーに保存されず、その場で処理して返ってくるだけ。
  */
 
-const ANALYZE_URL = "/.netlify/functions/analyze";
-const SUMMARIZE_URL = "/.netlify/functions/summarize";
+const ANALYZE_URL = "/api/analyze";
+const SUMMARIZE_URL = "/api/summarize";
 
 /** APIキーが未設定などで、直せるのが人（本人）だけの状態。画面で言い方を変えるために区別する。 */
 export class AiNotConfiguredError extends Error {
