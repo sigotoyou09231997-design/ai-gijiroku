@@ -60,9 +60,25 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function asStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map(asString).filter((item) => item.length > 0);
+/**
+ * ごく稀に、AIが配列で返すべきところを `<point>...</point>` のような
+ * タグ付きの1本の文字列で返すことがある（tool_use自体は成功しているので
+ * エラーにはならず、気付きにくい）。配列でなければ、タグの中身を1件ずつ
+ * 取り出す。タグも無ければ改行区切りの箇条書きとして扱う。
+ */
+export function asStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(asString).filter((item) => item.length > 0);
+  }
+  if (typeof value === "string") {
+    const tagged = [...value.matchAll(/<[^>/]+>([\s\S]*?)<\/[^>]+>/g)].map((m) => m[1].trim());
+    if (tagged.length > 0) return tagged.filter((item) => item.length > 0);
+    return value
+      .split("\n")
+      .map((line) => line.replace(/^[-•・\d.)　\s]+/, "").trim())
+      .filter((line) => line.length > 0);
+  }
+  return [];
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
