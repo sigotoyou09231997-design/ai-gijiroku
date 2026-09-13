@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { deleteSession, loadSession } from "../lib/db";
@@ -27,6 +27,7 @@ export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [regenerating, setRegenerating] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   // 読み込み中は undefined、見つからなかったときは null。両方を undefined にすると区別が付かない。
   const session = useLiveQuery(
@@ -131,67 +132,87 @@ export default function SessionDetailPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
-        <h2 className="text-sm font-semibold text-ink">会話中に検知した質問と回答案</h2>
-        <div className="mt-3 space-y-3">
-          {session.questions.length === 0 && <p className="text-sm text-faint">ありません</p>}
-          {session.questions.map((item) => (
-            <article key={item.id} className="rounded-lg border border-self/25 bg-self-soft p-3">
-              <p className="text-sm font-semibold text-self">{item.question}</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">{item.answer}</p>
-            </article>
-          ))}
-        </div>
-      </section>
+      <button
+        type="button"
+        className="flex w-full items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 text-sm font-semibold text-ink shadow-card transition-colors hover:bg-raised"
+        onClick={() => setShowDetails((open) => !open)}
+        aria-expanded={showDetails}
+      >
+        <span>
+          詳細を見る（質問と回答案 {session.questions.length}件・文字起こし {session.segments.length}件 など）
+        </span>
+        <ChevronDown
+          size={18}
+          className={`shrink-0 text-muted transition-transform duration-200 ${showDetails ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </button>
 
-      <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
-        <h2 className="text-sm font-semibold text-ink">会話中に検知した決定事項・宿題事項</h2>
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <Bullets title="決まったこと" items={decisions.map((item) => item.text)} empty="ありません" />
-          <Bullets title="やること" items={todos.map((item) => item.text)} empty="ありません" />
-        </div>
-      </section>
+      {showDetails && (
+        <>
+          <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
+            <h2 className="text-sm font-semibold text-ink">会話中に検知した質問と回答案</h2>
+            <div className="mt-3 space-y-3">
+              {session.questions.length === 0 && <p className="text-sm text-faint">ありません</p>}
+              {session.questions.map((item) => (
+                <article key={item.id} className="rounded-lg border border-self/25 bg-self-soft p-3">
+                  <p className="text-sm font-semibold text-self">{item.question}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">{item.answer}</p>
+                </article>
+              ))}
+            </div>
+          </section>
 
-      {session.terms.length > 0 && (
-        <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
-          <h2 className="text-sm font-semibold text-ink">会話中に検知した気になる用語</h2>
-          <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-            {session.terms.map((item) => (
-              <li key={item.id} className="rounded-lg bg-raised px-3 py-2">
-                <p className="text-sm font-semibold text-ink">{item.term}</p>
-                <p className="mt-0.5 text-sm leading-relaxed text-muted">{item.explanation}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
+          <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
+            <h2 className="text-sm font-semibold text-ink">会話中に検知した決定事項・宿題事項</h2>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <Bullets title="決まったこと" items={decisions.map((item) => item.text)} empty="ありません" />
+              <Bullets title="やること" items={todos.map((item) => item.text)} empty="ありません" />
+            </div>
+          </section>
+
+          {session.terms.length > 0 && (
+            <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
+              <h2 className="text-sm font-semibold text-ink">会話中に検知した気になる用語</h2>
+              <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+                {session.terms.map((item) => (
+                  <li key={item.id} className="rounded-lg bg-raised px-3 py-2">
+                    <p className="text-sm font-semibold text-ink">{item.term}</p>
+                    <p className="mt-0.5 text-sm leading-relaxed text-muted">{item.explanation}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
+            <h2 className="text-sm font-semibold text-ink">文字起こし全文</h2>
+            <div className="mt-3 max-h-96 space-y-1 overflow-y-auto rounded-lg bg-raised p-3 text-sm leading-relaxed">
+              {session.segments.map((segment) => {
+                // 誰の声か分かっているぶんには札を出す。録音中の画面と同じ色分けにする。
+                const who = speakerLabel(segment.speaker);
+                return (
+                  <p key={segment.id} className="text-ink">
+                    <span className="mr-2 text-xs text-faint">{formatTime(segment.at)}</span>
+                    {who && (
+                      <span
+                        className={`mr-2 rounded px-1.5 py-0.5 text-xs font-semibold ${
+                          segment.speaker === "self"
+                            ? "bg-self-soft text-self"
+                            : "bg-other-soft text-other"
+                        }`}
+                      >
+                        {who}
+                      </span>
+                    )}
+                    {segment.text}
+                  </p>
+                );
+              })}
+            </div>
+          </section>
+        </>
       )}
-
-      <section className="rounded-2xl border border-line bg-surface shadow-card p-4">
-        <h2 className="text-sm font-semibold text-ink">文字起こし全文</h2>
-        <div className="mt-3 max-h-96 space-y-1 overflow-y-auto rounded-lg bg-raised p-3 text-sm leading-relaxed">
-          {session.segments.map((segment) => {
-            // 誰の声か分かっているぶんには札を出す。録音中の画面と同じ色分けにする。
-            const who = speakerLabel(segment.speaker);
-            return (
-              <p key={segment.id} className="text-ink">
-                <span className="mr-2 text-xs text-faint">{formatTime(segment.at)}</span>
-                {who && (
-                  <span
-                    className={`mr-2 rounded px-1.5 py-0.5 text-xs font-semibold ${
-                      segment.speaker === "self"
-                        ? "bg-self-soft text-self"
-                        : "bg-other-soft text-other"
-                    }`}
-                  >
-                    {who}
-                  </span>
-                )}
-                {segment.text}
-              </p>
-            );
-          })}
-        </div>
-      </section>
     </div>
   );
 }

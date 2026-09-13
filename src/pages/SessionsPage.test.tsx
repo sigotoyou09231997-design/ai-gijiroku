@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import SessionsPage from "./SessionsPage";
@@ -54,6 +55,11 @@ describe("過去のセッションの画面", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("面接の1次でした")).toBeTruthy();
+
+    // 質問・決定事項・全文は、スクロールを減らすため既定では畳んである。
+    expect(screen.queryByText("志望動機は")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /詳細を見る/ }));
+
     expect(screen.getByText("志望動機は")).toBeTruthy();
     expect(screen.getByText("会話中に検知した決定事項・宿題事項")).toBeTruthy();
     expect(screen.getByText("会話中に検知した気になる用語")).toBeTruthy();
