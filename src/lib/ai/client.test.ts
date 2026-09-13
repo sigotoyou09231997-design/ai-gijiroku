@@ -22,6 +22,16 @@ describe("asStringList", () => {
     expect(asStringList(value)).toEqual(["次回の面談は16日21時から実施する。"]);
   });
 
+  it("タグの後にJSON配列そのものが続く形でも、配列として取り出す", () => {
+    const value = '\n<parameter name="points">["要点1", "要点2"]';
+    expect(asStringList(value)).toEqual(["要点1", "要点2"]);
+  });
+
+  it("タグの中に、さらにタグの切れ端が入れ子になっても中身だけにする", () => {
+    const value = '\n<parameter name="decisions">\n<item>次回は16日に実施する</item>\n';
+    expect(asStringList(value)).toEqual(["次回は16日に実施する"]);
+  });
+
   it("タグも無ければ、改行区切りの箇条書きとして扱う", () => {
     const value = "- 要点1\n・要点2\n3. 要点3";
     expect(asStringList(value)).toEqual(["要点1", "要点2", "要点3"]);

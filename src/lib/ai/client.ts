@@ -60,27 +60,46 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/** タグの切れ端（閉じ忘れ・入れ子）が残っていても、中身の文字だけにする。 */
+function stripTags(text: string): string {
+  return text.replace(/<[^>]*>/g, "").trim();
+}
+
 /**
- * ごく稀に、AIが配列で返すべきところを `<point>...</point>` のような
- * タグ付きの1本の文字列で返すことがある（tool_use自体は成功しているので
- * エラーにはならず、気付きにくい）。配列でなければ、タグの中身を1件ずつ
- * 取り出す。タグも無ければ改行区切りの箇条書きとして扱う。
+ * ごく稀に、AIが配列で返すべきところを、次のような壊れた形の1本の
+ * 文字列で返すことがある（tool_use自体は成功しているのでエラーには
+ * ならず、気付きにくい）。
+ *   - `<point>...</point>` のようなタグ付き文字列
+ *   - `<parameter name="points">["...", "..."]` のような、タグの後に
+ *     JSON配列そのものが続く形
+ * 配列でなければ、まずJSON配列を探し、無ければタグの中身を、
+ * それも無ければ改行区切りの箇条書きとして取り出す。
  */
 export function asStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map(asString).filter((item) => item.length > 0);
   }
-  if (typeof value === "string") {
-    const tagged = [...value.matchAll(/<[^>/]+>([\s\S]*?)<\/[^>]+>/g)].map((m) => m[1].trim());
-    if (tagged.length > 0) return tagged.filter((item) => item.length > 0);
-    // 閉じタグの無い、書きかけのタグの切れ端が混ざることもある。中身だけ残す。
-    return value
-      .replace(/<[^>]*>/g, "")
-      .split("\n")
-      .map((line) => line.replace(/^[-•・\d.)　\s]+/, "").trim())
-      .filter((line) => line.length > 0);
+  if (typeof value !== "string") return [];
+
+  const jsonMatch = value.match(/\[[\s\S]*\]/);
+  if (jsonMatch) {
+    try {
+      const parsed: unknown = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) {
+        return parsed.map(asString).map(stripTags).filter((item) => item.length > 0);
+      }
+    } catch {
+      // JSON として読めなければ、下のフォールバックに進む。
+    }
   }
-  return [];
+
+  const tagged = [...value.matchAll(/<[^>/]+>([\s\S]*?)<\/[^>]+>/g)].map((m) => stripTags(m[1]));
+  if (tagged.length > 0) return tagged.filter((item) => item.length > 0);
+
+  return stripTags(value)
+    .split("\n")
+    .map((line) => line.replace(/^[-•・\d.)　\s]+/, "").trim())
+    .filter((line) => line.length > 0);
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
