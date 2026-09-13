@@ -1,5 +1,5 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, ChevronDown, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, ListChecks, ListOrdered, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { deleteSession, loadSession } from "../lib/db";
@@ -122,11 +122,70 @@ export default function SessionDetailPage() {
             <p className="rounded-lg bg-line px-3 py-2 text-sm text-muted">{session.summaryError}</p>
           )}
           {session.summary && (
-            <div className="space-y-4">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{session.summary.overview}</p>
-              <Bullets title="要点" items={session.summary.points} empty="ありません" />
-              <Bullets title="決定事項" items={session.summary.decisions} empty="ありません" />
-              <Bullets title="宿題事項" items={session.summary.todos} empty="ありません" />
+            <div className="space-y-5">
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
+                {session.summary.overview}
+              </p>
+
+              {session.summary.points.length > 0 && (
+                <div>
+                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-muted">
+                    <ListOrdered size={13} aria-hidden />
+                    要点
+                  </h3>
+                  <ol className="mt-2 space-y-2">
+                    {session.summary.points.map((item, index) => (
+                      <li key={`${index}-${item}`} className="flex gap-2.5 rounded-xl bg-raised px-3.5 py-2.5">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-line text-[11px] font-bold text-muted">
+                          {index + 1}
+                        </span>
+                        <span className="text-sm leading-relaxed text-ink">{item}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-self">
+                    <CheckCircle2 size={13} aria-hidden />
+                    決定事項
+                  </h3>
+                  <ul className="mt-2 space-y-1.5">
+                    {session.summary.decisions.length === 0 && (
+                      <li className="text-sm text-faint">ありません</li>
+                    )}
+                    {session.summary.decisions.map((item, index) => (
+                      <li
+                        key={`${index}-${item}`}
+                        className="rounded-xl bg-self-soft px-3.5 py-2.5 text-sm leading-relaxed text-ink"
+                      >
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-other">
+                    <ListChecks size={13} aria-hidden />
+                    宿題事項
+                  </h3>
+                  <ul className="mt-2 space-y-1.5">
+                    {session.summary.todos.length === 0 && (
+                      <li className="text-sm text-faint">ありません</li>
+                    )}
+                    {session.summary.todos.map((item, index) => (
+                      <li
+                        key={`${index}-${item}`}
+                        className="rounded-xl bg-other-soft px-3.5 py-2.5 text-sm leading-relaxed text-ink"
+                      >
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           )}
         </div>
