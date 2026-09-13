@@ -9,7 +9,7 @@ const NAV_ITEMS = [
 ] as const;
 
 function sidebarLinkClass({ isActive }: { isActive: boolean }): string {
-  const base = "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-150";
+  const base = "flex items-center gap-2.5 rounded-xl px-3 py-3 text-base font-semibold transition-all duration-150";
   return isActive ? `${base} bg-self text-white shadow-lift` : `${base} text-muted hover:bg-line/60 hover:text-ink`;
 }
 
@@ -25,18 +25,18 @@ export default function Layout() {
       <aside className="hidden shrink-0 flex-col border-r border-line/70 bg-canvas/70 backdrop-blur-xl sm:flex sm:w-56">
         <div className="flex items-center gap-2.5 px-5 py-5">
           <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-self text-white shadow-lift"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-self text-white shadow-lift"
             aria-hidden
           >
-            <Mic size={16} strokeWidth={2.5} />
+            <Mic size={18} strokeWidth={2.5} />
           </span>
-          <h1 className="text-[15px] font-bold tracking-tight">AI議事録</h1>
+          <h1 className="text-lg font-bold tracking-tight">AI議事録</h1>
         </div>
 
         <nav className="flex flex-col gap-1 px-3">
           {NAV_ITEMS.map(({ to, end, icon: Icon, label }) => (
             <NavLink key={to} to={to} end={end} className={sidebarLinkClass}>
-              <Icon size={16} aria-hidden />
+              <Icon size={18} aria-hidden />
               {label}
             </NavLink>
           ))}
