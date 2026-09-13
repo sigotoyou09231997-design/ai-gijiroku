@@ -123,23 +123,23 @@ export default function SessionDetailPage() {
           )}
           {session.summary && (
             <div className="space-y-5">
-              <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
+              <p className="whitespace-pre-wrap text-base leading-relaxed text-ink">
                 {session.summary.overview}
               </p>
 
               {session.summary.points.length > 0 && (
                 <div>
-                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-muted">
-                    <ListOrdered size={13} aria-hidden />
+                  <h3 className="flex items-center gap-1.5 text-sm font-bold text-muted">
+                    <ListOrdered size={14} aria-hidden />
                     要点
                   </h3>
                   <ol className="mt-2 space-y-2">
                     {session.summary.points.map((item, index) => (
                       <li key={`${index}-${item}`} className="flex gap-2.5 rounded-xl bg-raised px-3.5 py-2.5">
-                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-line text-[11px] font-bold text-muted">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-line text-xs font-bold text-muted">
                           {index + 1}
                         </span>
-                        <span className="text-sm leading-relaxed text-ink">{item}</span>
+                        <span className="text-[15px] leading-relaxed text-ink">{item}</span>
                       </li>
                     ))}
                   </ol>
@@ -148,18 +148,18 @@ export default function SessionDetailPage() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-self">
-                    <CheckCircle2 size={13} aria-hidden />
+                  <h3 className="flex items-center gap-1.5 text-sm font-bold text-self">
+                    <CheckCircle2 size={14} aria-hidden />
                     決定事項
                   </h3>
                   <ul className="mt-2 space-y-1.5">
                     {session.summary.decisions.length === 0 && (
-                      <li className="text-sm text-faint">ありません</li>
+                      <li className="text-[15px] text-faint">ありません</li>
                     )}
                     {session.summary.decisions.map((item, index) => (
                       <li
                         key={`${index}-${item}`}
-                        className="rounded-xl bg-self-soft px-3.5 py-2.5 text-sm leading-relaxed text-ink"
+                        className="rounded-xl bg-self-soft px-3.5 py-2.5 text-[15px] leading-relaxed text-ink"
                       >
                         {item}
                       </li>
@@ -167,18 +167,18 @@ export default function SessionDetailPage() {
                   </ul>
                 </div>
                 <div>
-                  <h3 className="flex items-center gap-1.5 text-xs font-bold text-other">
-                    <ListChecks size={13} aria-hidden />
+                  <h3 className="flex items-center gap-1.5 text-sm font-bold text-other">
+                    <ListChecks size={14} aria-hidden />
                     宿題事項
                   </h3>
                   <ul className="mt-2 space-y-1.5">
                     {session.summary.todos.length === 0 && (
-                      <li className="text-sm text-faint">ありません</li>
+                      <li className="text-[15px] text-faint">ありません</li>
                     )}
                     {session.summary.todos.map((item, index) => (
                       <li
                         key={`${index}-${item}`}
-                        className="rounded-xl bg-other-soft px-3.5 py-2.5 text-sm leading-relaxed text-ink"
+                        className="rounded-xl bg-other-soft px-3.5 py-2.5 text-[15px] leading-relaxed text-ink"
                       >
                         {item}
                       </li>
