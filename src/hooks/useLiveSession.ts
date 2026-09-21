@@ -10,6 +10,7 @@ import {
   listAudioInputs,
   loadChoice,
   reconcile,
+  resolveChoice,
   saveChoice,
   type SourceChoice,
 } from "../lib/speech/devices";
@@ -52,8 +53,10 @@ export interface LiveSession {
   canSeparateSpeakers: boolean;
   /** 選べる入力デバイス。 */
   devices: AudioInputDevice[];
-  /** いまの選択。 */
+  /** いまの選択（「自動」のままのこともある）。 */
   sourceChoice: SourceChoice;
+  /** 「自動」を、いま繋がっているデバイスに置き換えたもの。画面の表示に使う。 */
+  resolvedChoice: SourceChoice;
   setSourceChoice(choice: SourceChoice): void;
   refreshDevices(): Promise<void>;
   start(): void;
@@ -121,10 +124,13 @@ export function useLiveSession(): LiveSession {
     };
   }, []);
 
-  const refreshDevices = useCallback(async () => {
-    // 名前を読むには許可が要る。断られても一覧そのものは出す（名前が空になるだけ）。
-    await ensureMicPermission();
-    const found = await listAudioInputs();
+  /** 一覧を読み直して、選択の憶えを今あるものに合わせる。読み直した一覧を返す。 */
+  const applyDevices = useCallback(async (): Promise<AudioInputDevice[]> => {
+    let found = await listAudioInputs();
+    // 名前が読めない（＝許可がまだ）と自動で選べないので、そのときだけ許可を取って読み直す。
+    if (found.length > 0 && found.every((d) => d.label.startsWith("入力デバイス "))) {
+      if (await ensureMicPermission()) found = await listAudioInputs();
+    }
     setDevices(found);
     setSourceChoiceState((current) => {
       const fixed = reconcile(current, found);
@@ -133,13 +139,32 @@ export function useLiveSession(): LiveSession {
       }
       return fixed;
     });
+    return found;
   }, []);
+
+  const refreshDevices = useCallback(async () => {
+    // 名前を読むには許可が要る。断られても一覧そのものは出す（名前が空になるだけ）。
+    await ensureMicPermission();
+    await applyDevices();
+  }, [applyDevices]);
 
   // 分けて聞ける音声認識のときだけ、デバイスの一覧が要る。
   useEffect(() => {
     if (!providerInfo.supportsMultipleSources) return;
     void refreshDevices();
   }, [providerInfo.supportsMultipleSources, refreshDevices]);
+
+  // イヤホンや USB マイクを抜き差ししたら、一覧（と自動で選ばれるもの）を追いかける。
+  useEffect(() => {
+    if (!providerInfo.supportsMultipleSources) return;
+    const media = typeof navigator === "undefined" ? undefined : navigator.mediaDevices;
+    if (!media?.addEventListener) return;
+    const onChange = () => void applyDevices();
+    media.addEventListener("devicechange", onChange);
+    return () => media.removeEventListener("devicechange", onChange);
+  }, [providerInfo.supportsMultipleSources, applyDevices]);
+
+  const resolvedChoice = useMemo(() => resolveChoice(sourceChoice, devices), [sourceChoice, devices]);
 
   const setSourceChoice = useCallback((choice: SourceChoice) => {
     setSourceChoiceState(choice);
@@ -218,9 +243,7 @@ export function useLiveSession(): LiveSession {
     };
   }, []);
 
-  const start = useCallback(() => {
-    if (!providerInfo.available) return;
-
+  const beginRecording = useCallback((sources: SpeechSource[] | undefined): void => {
     segmentsRef.current = [];
     questionsRef.current = [];
     actionsRef.current = [];
@@ -240,16 +263,6 @@ export function useLiveSession(): LiveSession {
     setSpeechError(null);
     setAiError(null);
     setAnalyzing(false);
-
-    // 分けて聞けるときは、選んだデバイスを話者ごとに1本ずつ渡す。
-    let sources: SpeechSource[] | undefined;
-    if (providerInfo.supportsMultipleSources) {
-      const choice = choiceRef.current;
-      sources = [{ speaker: "self", deviceId: choice.selfDeviceId || undefined }];
-      if (choice.otherDeviceId) {
-        sources.push({ speaker: "other", deviceId: choice.otherDeviceId });
-      }
-    }
 
     const recognizer = provider.create({ lang: "ja-JP", sources });
     recognizerRef.current = recognizer;
@@ -278,7 +291,31 @@ export function useLiveSession(): LiveSession {
 
     setMicActive(true);
     setStatus("recording");
-  }, [provider, providerInfo.available, providerInfo.supportsMultipleSources]);
+  }, [provider]);
+
+  const startingRef = useRef(false);
+
+  const start = useCallback(() => {
+    if (!providerInfo.available || startingRef.current) return;
+    startingRef.current = true;
+    void (async () => {
+      try {
+        // 分けて聞けるときは、押した瞬間に繋がっているデバイスで「自動」を決める。
+        let sources: SpeechSource[] | undefined;
+        if (providerInfo.supportsMultipleSources) {
+          const found = await applyDevices().catch(() => [] as AudioInputDevice[]);
+          const choice = resolveChoice(choiceRef.current, found);
+          sources = [{ speaker: "self", deviceId: choice.selfDeviceId || undefined }];
+          if (choice.otherDeviceId) {
+            sources.push({ speaker: "other", deviceId: choice.otherDeviceId });
+          }
+        }
+        beginRecording(sources);
+      } finally {
+        startingRef.current = false;
+      }
+    })();
+  }, [providerInfo.available, providerInfo.supportsMultipleSources, applyDevices, beginRecording]);
 
   const finish = useCallback(async (): Promise<string | null> => {
     const sessionId = sessionIdRef.current;
@@ -338,6 +375,7 @@ export function useLiveSession(): LiveSession {
     canSeparateSpeakers: providerInfo.supportsMultipleSources,
     devices,
     sourceChoice,
+    resolvedChoice,
     setSourceChoice,
     refreshDevices,
     start,

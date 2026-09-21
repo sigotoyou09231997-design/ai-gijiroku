@@ -18,6 +18,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { SESSION_LABELS, useLiveSession } from "../hooks/useLiveSession";
 import { formatTime } from "../lib/format";
+import { AUTO } from "../lib/speech/devices";
 import { speakerLabel } from "../lib/types";
 import type { Speaker } from "../lib/types";
 
@@ -94,6 +95,15 @@ export default function RecordPage() {
 
   const deviceName = (id: string, fallback: string) =>
     live.devices.find((d) => d.deviceId === id)?.label ?? fallback;
+  /** 「自動」を、いま繋がっているもので置き換えた名前。 */
+  const resolvedName = (key: "self" | "other", fallback: string) =>
+    deviceName(key === "self" ? live.resolvedChoice.selfDeviceId : live.resolvedChoice.otherDeviceId, fallback);
+  /** 畳んだ見出しに出す名前。「自動」のときは（自動）を添える。 */
+  const sourceName = (key: "self" | "other", fallback: string) => {
+    const chosen = key === "self" ? live.sourceChoice.selfDeviceId : live.sourceChoice.otherDeviceId;
+    const name = resolvedName(key, fallback);
+    return chosen === AUTO ? `${name}（自動）` : name;
+  };
 
   return (
     <div className="space-y-4">
@@ -240,8 +250,7 @@ export default function RecordPage() {
             <span className="text-sm font-semibold">どの音を、誰の声として聞くか</span>
             {!settingsOpen && (
               <span className="ml-1 truncate text-xs text-faint">
-                自分 = {deviceName(live.sourceChoice.selfDeviceId, "既定のマイク")} ／ 相手 ={" "}
-                {deviceName(live.sourceChoice.otherDeviceId, "聞かない")}
+                自分 = {sourceName("self", "既定のマイク")} ／ 相手 = {sourceName("other", "聞かない")}
               </span>
             )}
             <div className="grow" />
@@ -256,8 +265,9 @@ export default function RecordPage() {
             <div className="border-t border-line px-4 pb-4 pt-3">
               <div className="flex items-start gap-2">
                 <p className="text-xs leading-relaxed text-muted">
-                  2つを別々に聞き取るので、どちらが喋ったのかが確実に分かります。相手の声は、Zoom
-                  などの音を仮想オーディオ（BlackHole など）で受けた入力を選んでください。
+                  2つを別々に聞き取るので、どちらが喋ったのかが確実に分かります。「自動」にしておくと、
+                  録音を始めるたびに、いま繋がっている入力から選び直します（相手の声は BlackHole
+                  などの仮想オーディオ、自分の声はそれ以外のマイク）。
                 </p>
                 <button
                   type="button"
@@ -301,6 +311,9 @@ export default function RecordPage() {
                         )
                       }
                     >
+                      <option value={AUTO}>
+                        自動（いまは {resolvedName(key, empty)}）
+                      </option>
                       <option value="">{empty}</option>
                       {live.devices.map((device) => (
                         <option key={device.deviceId} value={device.deviceId}>
@@ -312,8 +325,8 @@ export default function RecordPage() {
                 ))}
               </div>
 
-              {live.sourceChoice.selfDeviceId !== "" &&
-                live.sourceChoice.selfDeviceId === live.sourceChoice.otherDeviceId && (
+              {live.resolvedChoice.selfDeviceId !== "" &&
+                live.resolvedChoice.selfDeviceId === live.resolvedChoice.otherDeviceId && (
                   <p className="mt-3 rounded-lg bg-live/10 px-3 py-2 text-sm text-live">
                     同じ入力を両方に選んでいます。これでは話者を分けられません。別々のものを選んでください。
                   </p>

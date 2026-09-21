@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyChoice, reconcile } from "./devices";
+import { AUTO, autoChoice, emptyChoice, pickOtherDevice, pickSelfDevice, reconcile, resolveChoice } from "./devices";
 import type { AudioInputDevice } from "./devices";
 
 const devices: AudioInputDevice[] = [
@@ -24,5 +24,57 @@ describe("選んだ入力デバイスの引き当て", () => {
 
   it("既定（空文字）はそのまま既定のまま", () => {
     expect(reconcile(emptyChoice, devices)).toEqual(emptyChoice);
+  });
+});
+
+describe("自動で選ぶ", () => {
+  // Chrome on Mac で実際に並ぶ形（「既定 -」の別名つき）。
+  const mac: AudioInputDevice[] = [
+    { deviceId: "default", label: "既定 - MacBook Proのマイク (Built-in)" },
+    { deviceId: "builtin", label: "MacBook Proのマイク (Built-in)" },
+    { deviceId: "airpods", label: "appleのAirPods Pro (Bluetooth)" },
+    { deviceId: "emeet", label: "HD Webcam eMeet C960 (328f:006d)" },
+    { deviceId: "razer", label: "Razer Seiren Mini (1532:0531)" },
+    { deviceId: "blackhole", label: "BlackHole 2ch (Virtual)" },
+    { deviceId: "bgm", label: "Background Music (Virtual)" },
+    { deviceId: "bgm-ui", label: "Background Music (UI Sounds) (Virtual)" },
+    { deviceId: "iphone", label: "\u200eれもんのマイク" },
+  ];
+
+  it("相手は仮想オーディオ、自分は専用の外付けマイクを選ぶ", () => {
+    expect(resolveChoice(autoChoice, mac)).toEqual({ selfDeviceId: "razer", otherDeviceId: "blackhole" });
+  });
+
+  it("外付けマイクを抜くと、カメラ → iPhone → AirPods → 内蔵（無音）の順に下がる", () => {
+    const without = (...ids: string[]) => mac.filter((d) => !ids.includes(d.deviceId));
+    expect(pickSelfDevice(without("razer"))).toBe("emeet");
+    expect(pickSelfDevice(without("razer", "emeet"))).toBe("iphone");
+    expect(pickSelfDevice(without("razer", "emeet", "iphone"))).toBe("airpods");
+    expect(pickSelfDevice(without("razer", "emeet", "iphone", "airpods"))).toBe("builtin");
+  });
+
+  it("Background Music も仮想オーディオなので、自分の声には選ばず、相手は BlackHole を優先する", () => {
+    const only = mac.filter((d) => ["bgm", "bgm-ui", "blackhole", "airpods"].includes(d.deviceId));
+    expect(resolveChoice(autoChoice, only)).toEqual({ selfDeviceId: "airpods", otherDeviceId: "blackhole" });
+  });
+
+  it("仮想オーディオが無ければ、相手側は聞かない", () => {
+    // Background Music は残っているが、会議の音は流していないので選ばない。
+    expect(pickOtherDevice(mac.filter((d) => d.deviceId !== "blackhole"))).toBe("");
+  });
+
+  it("仮想オーディオを自分の声には選ばない", () => {
+    expect(pickSelfDevice([{ deviceId: "blackhole", label: "BlackHole 2ch" }])).toBe("");
+  });
+
+  it("手で選んだ所は自動で上書きしない", () => {
+    expect(resolveChoice({ selfDeviceId: "emeet", otherDeviceId: AUTO }, mac)).toEqual({
+      selfDeviceId: "emeet",
+      otherDeviceId: "blackhole",
+    });
+  });
+
+  it("「自動」は一覧に無くても消さずに残す", () => {
+    expect(reconcile(autoChoice, [])).toEqual(autoChoice);
   });
 });

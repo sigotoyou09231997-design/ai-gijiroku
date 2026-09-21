@@ -6,7 +6,11 @@
  * 画面で選んでもらってこの端末に憶えておく。
  */
 
-const STORAGE_KEY = "ai-gijiroku.audio-sources";
+// v2 で「自動」を既定にした。以前の手選びの憶えは引き継がず、自動から始める。
+const STORAGE_KEY = "ai-gijiroku.audio-sources.v2";
+
+/** 「そのとき繋がっているものから選ぶ」を表す値。 */
+export const AUTO = "auto";
 
 export interface AudioInputDevice {
   deviceId: string;
@@ -14,13 +18,14 @@ export interface AudioInputDevice {
 }
 
 export interface SourceChoice {
-  /** 自分の声を拾うデバイス。空文字なら既定のマイク。 */
+  /** 自分の声を拾うデバイス。AUTO なら自動、空文字なら既定のマイク。 */
   selfDeviceId: string;
-  /** 相手の声を拾うデバイス。空文字なら「相手側は聞かない」。 */
+  /** 相手の声を拾うデバイス。AUTO なら自動、空文字なら「相手側は聞かない」。 */
   otherDeviceId: string;
 }
 
 export const emptyChoice: SourceChoice = { selfDeviceId: "", otherDeviceId: "" };
+export const autoChoice: SourceChoice = { selfDeviceId: AUTO, otherDeviceId: AUTO };
 
 /**
  * 入力デバイスの一覧。
@@ -52,17 +57,17 @@ export async function ensureMicPermission(): Promise<boolean> {
 }
 
 export function loadChoice(): SourceChoice {
-  if (typeof localStorage === "undefined") return emptyChoice;
+  if (typeof localStorage === "undefined") return autoChoice;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return emptyChoice;
+    if (!raw) return autoChoice;
     const parsed = JSON.parse(raw) as Partial<SourceChoice>;
     return {
       selfDeviceId: typeof parsed.selfDeviceId === "string" ? parsed.selfDeviceId : "",
       otherDeviceId: typeof parsed.otherDeviceId === "string" ? parsed.otherDeviceId : "",
     };
   } catch {
-    return emptyChoice;
+    return autoChoice;
   }
 }
 
@@ -81,8 +86,72 @@ export function saveChoice(choice: SourceChoice): void {
  */
 export function reconcile(choice: SourceChoice, devices: AudioInputDevice[]): SourceChoice {
   const ids = new Set(devices.map((d) => d.deviceId));
+  const keep = (id: string) => (id === AUTO || ids.has(id) ? id : "");
+  return { selfDeviceId: keep(choice.selfDeviceId), otherDeviceId: keep(choice.otherDeviceId) };
+}
+
+/** 通話アプリの音を受けるための仮想オーディオか。相手の声はここから拾う。 */
+const VIRTUAL =
+  /blackhole|loopback|soundflower|background music|vb-?audio|vb-?cable|cable output|virtual|仮想|stereo mix|ステレオ ミキサー|zoomaudiodevice|teams audio/i;
+
+/** Chrome が一覧に足す「既定」「通信」の別名。中身は他の行と同じなので、自動では選ばない。 */
+const ALIAS_IDS = new Set(["default", "communications"]);
+
+/**
+ * 仮想オーディオでも、通話の音を流す先ではないもの。
+ * Background Music はアプリごとの音量調整のための仮想デバイスで、会議の音は BlackHole に流している。
+ * 自分の声にも相手の声にも選ばない。
+ */
+const NOT_CALL_AUDIO = /background music/i;
+
+function isVirtual(device: AudioInputDevice): boolean {
+  return VIRTUAL.test(device.label);
+}
+
+/**
+ * 自分の声に向いているかの点数。高いほど良い。
+ * - 専用の外付けマイク（USB など）がいちばん。
+ * - カメラのマイクは口から遠いので、少し下げる。
+ * - iPhone をマイクにしたもの（連係カメラ）は、iPhone が離れたり画面が消えたりで途切れやすい。
+ *   mac はその名前を「‎〇〇のマイク」と先頭に見えない向きの印（U+200E）を付けて出す。
+ * - Bluetooth のイヤホン（AirPods など）はマイクを使うと通話モードに落ち、音質が下がるうえ、
+ *   同じ時計に乗っている相手側の音まで道連れにする。
+ * - 本体の内蔵マイクは最後。この Mac の MacBook Pro は内蔵マイクが完全な無音を返すので、
+ *   音質が落ちても声が届く AirPods の方がまし。
+ */
+function selfScore(device: AudioInputDevice): number {
+  const label = device.label;
+  if (/macbook|built-?in|internal|内蔵/i.test(label)) return -30;
+  if (/airpods|bluetooth|hands-?free|headset|ヘッドセット/i.test(label)) return -20;
+  if (/iphone|ipad|continuity|\u200e/i.test(label)) return -10;
+  if (/webcam|camera|カメラ/i.test(label)) return -5;
+  return 0;
+}
+
+/** 自動のときに、自分の声に使うデバイスを選ぶ。候補が無ければ既定のマイク（空文字）。 */
+export function pickSelfDevice(devices: AudioInputDevice[]): string {
+  let best: AudioInputDevice | null = null;
+  for (const device of devices) {
+    if (ALIAS_IDS.has(device.deviceId) || isVirtual(device)) continue;
+    if (!best || selfScore(device) > selfScore(best)) best = device;
+  }
+  return best?.deviceId ?? "";
+}
+
+/** 自動のときに、相手の声に使うデバイスを選ぶ。仮想オーディオが無ければ聞かない（空文字）。 */
+export function pickOtherDevice(devices: AudioInputDevice[]): string {
+  const candidates = devices.filter(
+    (d) => !ALIAS_IDS.has(d.deviceId) && isVirtual(d) && !NOT_CALL_AUDIO.test(d.label),
+  );
+  const preferred = candidates.find((d) => /blackhole/i.test(d.label)) ?? candidates[0];
+  return preferred?.deviceId ?? "";
+}
+
+/** 自動の所を、いま繋がっているデバイスで具体的なIDに置き換える。録音はこの結果で始める。 */
+export function resolveChoice(choice: SourceChoice, devices: AudioInputDevice[]): SourceChoice {
+  const fixed = reconcile(choice, devices);
   return {
-    selfDeviceId: ids.has(choice.selfDeviceId) ? choice.selfDeviceId : "",
-    otherDeviceId: ids.has(choice.otherDeviceId) ? choice.otherDeviceId : "",
+    selfDeviceId: fixed.selfDeviceId === AUTO ? pickSelfDevice(devices) : fixed.selfDeviceId,
+    otherDeviceId: fixed.otherDeviceId === AUTO ? pickOtherDevice(devices) : fixed.otherDeviceId,
   };
 }
