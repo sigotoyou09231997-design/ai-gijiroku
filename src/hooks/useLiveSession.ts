@@ -43,6 +43,8 @@ export interface LiveSession {
   terms: DetectedTerm[];
   analyzing: boolean;
   speechError: string | null;
+  /** 一時的な不調（つなぎ直している最中など）。直れば消える。 */
+  speechNotice: string | null;
   aiError: string | null;
   /** 音声認識が使えるか（使えない理由つき）。 */
   speechAvailable: boolean;
@@ -85,6 +87,7 @@ export function useLiveSession(): LiveSession {
   const [terms, setTerms] = useState<DetectedTerm[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [notices, setNotices] = useState<Partial<Record<Speaker, string>>>({});
   const [aiError, setAiError] = useState<string | null>(null);
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [sourceChoice, setSourceChoiceState] = useState<SourceChoice>(() => loadChoice());
@@ -261,6 +264,7 @@ export function useLiveSession(): LiveSession {
     setTerms([]);
     setInterim({});
     setSpeechError(null);
+    setNotices({});
     setAiError(null);
     setAnalyzing(false);
 
@@ -281,7 +285,16 @@ export function useLiveSession(): LiveSession {
         segmentsRef.current = [...segmentsRef.current, segment];
         setSegments(segmentsRef.current);
       },
+      onStatus: (speaker, message) => {
+        setNotices((current) => {
+          const next = { ...current };
+          if (message) next[speaker] = message;
+          else delete next[speaker];
+          return next;
+        });
+      },
       onError: (message) => {
+        setNotices({});
         setSpeechError(message);
         setMicActive(false);
         recognizerRef.current?.stop();
@@ -326,6 +339,7 @@ export function useLiveSession(): LiveSession {
     recognizerRef.current = null;
     setMicActive(false);
     setInterim({});
+    setNotices({});
 
     // 最後に喋ったぶんも拾ってから閉じる。
     await runAnalyze(true);
@@ -368,6 +382,7 @@ export function useLiveSession(): LiveSession {
     terms,
     analyzing,
     speechError,
+    speechNotice: Object.values(notices).filter(Boolean).join(" ／ ") || null,
     aiError,
     speechAvailable: providerInfo.available,
     speechUnavailableReason: providerInfo.reason ?? null,

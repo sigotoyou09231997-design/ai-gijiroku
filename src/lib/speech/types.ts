@@ -37,6 +37,11 @@ export interface SpeechHandlers {
   onChunk(chunk: SpeechChunk): void;
   /** 続行できない種類の失敗だけ呼ぶ（無音などの一時的なものは呼ばない）。 */
   onError(message: string): void;
+  /**
+   * 一時的な不調を知らせる（つなぎ直している最中など）。直ったら null。
+   * 話者ごとに別々に届く。対応していないプロバイダは呼ばない。
+   */
+  onStatus?(speaker: Speaker, message: string | null): void;
 }
 
 export interface SpeechRecognizer {

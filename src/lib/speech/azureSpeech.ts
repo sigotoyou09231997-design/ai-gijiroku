@@ -54,6 +54,42 @@ async function fetchToken(): Promise<TokenResponse> {
   return data;
 }
 
+/** Azure が認識を打ち切ったときの扱い。 */
+export type CancelKind =
+  /** 利用枠を超えた。つなぎ直しても同じなので、止めて理由を出す。 */
+  | "quota"
+  /** 合鍵が切れた・効かない。取り直してつなぎ直す。 */
+  | "auth"
+  /** 送った設定がおかしい。つなぎ直しても直らないので止める。 */
+  | "config"
+  /** 通信の切断など、一時的なもの。つなぎ直す。 */
+  | "retry";
+
+/**
+ * 打ち切りの理由を分ける。
+ * 利用枠の超過は「BadRequestParameters（websocket 1007）」として届き、中身の文面で
+ * 「Quota exceeded」と分かる（2026-09-21 に無料プラン F0 で実際に出た）。
+ */
+export function classifyCancel(errorCode: SDK.CancellationErrorCode, details: string): CancelKind {
+  if (errorCode === SDK.CancellationErrorCode.TooManyRequests || /quota/i.test(details)) return "quota";
+  if (errorCode === SDK.CancellationErrorCode.AuthenticationFailure) return "auth";
+  if (errorCode === SDK.CancellationErrorCode.BadRequestParameters) return "config";
+  return "retry";
+}
+
+/** つなぎ直すまでの待ち時間。1, 2, 4, 8, 15, 15… 秒。 */
+export function retryDelayMs(attempt: number): number {
+  return Math.min(15_000, 1000 * 2 ** Math.max(0, attempt));
+}
+
+/** 続けて失敗してよい回数。これを超えたら止めて知らせる（数分ぶん粘る）。 */
+export const MAX_RETRIES = 12;
+/** これだけ無事に動き続けたら、失敗の数え直しをする。 */
+const HEALTHY_MS = 60_000;
+
+const QUOTA_MESSAGE =
+  "Azure の音声認識の利用上限に当たったため止まりました。Azure ポータルで ai-gijiroku の価格レベルが S0（有料）になっているか確かめてください。";
+
 /**
  * 音源1本ぶんの認識。話者の札はここで貼る。
  *
@@ -63,40 +99,80 @@ async function fetchToken(): Promise<TokenResponse> {
  * システムの既定の入力デバイスを掴んでしまうことがある（実際に、相手用に
  * BlackHole を指定したのに自分のマイクと同じ内容が「相手」側にも出た）。
  * 自前で `getUserMedia` すれば、Deepgram と同じ確実な経路でデバイスを選べる。
+ *
+ * 途中で切れても黙って止まらないようにする。以前は、Azure に切られたり
+ * マイクの流れが途切れたりすると（AirPods のつなぎ直しなど）、そのまま
+ * 何も言わずに文字が増えなくなっていた。いまは次のように扱う:
+ * - 通信の切断・合鍵切れ・マイクの途切れ … この音源だけ、少し待ってつなぎ直す
+ * - 利用枠の超過・設定の誤り … つなぎ直しても同じなので、止めて理由を出す
  */
 class SourceRecognition {
   private recognizer: SDK.SpeechRecognizer | null = null;
   private stream: MediaStream | null = null;
   private stopped = false;
+  private token = "";
+  private region = "";
+  private handlers: SpeechHandlers | null = null;
+  private attempt = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private healthyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly source: SpeechSource,
     private readonly lang: string,
+    /** 合鍵を取り直す。つなぎ直しのときに使う。 */
+    private readonly renewToken: () => Promise<string>,
   ) {}
 
+  private get who(): string {
+    return this.source.speaker === "other" ? "相手の声" : "自分の声";
+  }
+
   async start(token: string, region: string, handlers: SpeechHandlers): Promise<void> {
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(this.source) });
-    } catch {
-      handlers.onError(
-        this.source.deviceId
-          ? "選んだ入力デバイスを開けませんでした。抜き差ししていないか、一覧を更新して選び直してください。"
-          : "マイクを開けませんでした。ブラウザの設定でこのサイトのマイクを許可してください。",
-      );
-      return;
-    }
-    if (this.stopped) {
-      for (const track of stream.getTracks()) track.stop();
-      return;
-    }
-    this.stream = stream;
+    this.token = token;
+    this.region = region;
+    this.handlers = handlers;
+    await this.connect();
+  }
 
-    const config = SDK.SpeechConfig.fromAuthorizationToken(token, region);
+  /** マイクを（途切れていれば掴み直して）認識を始める。 */
+  private async connect(): Promise<void> {
+    const handlers = this.handlers;
+    if (this.stopped || !handlers) return;
+
+    if (!this.stream || !this.stream.active) {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(this.source) });
+      } catch {
+        // 最初の1回で開けないのは、選び方か許可の問題。途中なら抜き差しの最中かもしれないので粘る。
+        if (this.attempt === 0 && !this.recognizer) {
+          handlers.onError(
+            this.source.deviceId
+              ? "選んだ入力デバイスを開けませんでした。抜き差ししていないか、一覧を更新して選び直してください。"
+              : "マイクを開けませんでした。ブラウザの設定でこのサイトのマイクを許可してください。",
+          );
+          return;
+        }
+        this.scheduleRetry("マイクを開き直せませんでした");
+        return;
+      }
+      if (this.stopped) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+      this.stream = stream;
+      // マイクの流れが途切れたら（抜けた・Bluetooth の切り替えなど）、掴み直す。
+      for (const track of stream.getAudioTracks()) {
+        track.addEventListener("ended", () => {
+          if (this.stream === stream) this.scheduleRetry("マイクの音が途切れました");
+        });
+      }
+    }
+
+    const config = SDK.SpeechConfig.fromAuthorizationToken(this.token, this.region);
     config.speechRecognitionLanguage = this.lang;
-
-    const audio = SDK.AudioConfig.fromStreamInput(stream);
-
+    const audio = SDK.AudioConfig.fromStreamInput(this.stream);
     const recognizer = new SDK.SpeechRecognizer(config, audio);
     this.recognizer = recognizer;
 
@@ -112,46 +188,138 @@ class SourceRecognition {
       if (e.result.reason === SDK.ResultReason.RecognizedSpeech) emit(e.result.text ?? "", true);
     };
     recognizer.canceled = (_s, e) => {
-      // 認識できる音が無いだけの中断は、会議では普通に起きるので黙って流す。
-      if (e.reason === SDK.CancellationReason.Error) {
-        handlers.onError(`音声認識が止まりました（${e.errorDetails || e.errorCode}）`);
+      if (this.recognizer !== recognizer) return;
+      if (e.reason !== SDK.CancellationReason.Error) {
+        // 音の流れが終わった（EndOfStream）。以前はここで黙って止まっていた。
+        this.scheduleRetry("マイクの音が途切れました");
+        return;
+      }
+      const details = e.errorDetails || String(e.errorCode);
+      const kind = classifyCancel(e.errorCode, details);
+      if (kind === "quota") {
+        this.fail(QUOTA_MESSAGE);
+      } else if (kind === "config") {
+        this.fail(`音声認識が止まりました（${details}）`);
+      } else {
+        this.scheduleRetry("音声認識のサーバーとの接続が切れました", kind === "auth");
       }
     };
 
     recognizer.startContinuousRecognitionAsync(
-      () => undefined,
-      (err) => handlers.onError(`音声認識を開始できませんでした（${err}）`),
+      () => {
+        if (this.recognizer !== recognizer) return;
+        handlers.onStatus?.(this.source.speaker, null);
+        // しばらく無事に動いたら、失敗の数え直しをする。
+        if (this.healthyTimer) clearTimeout(this.healthyTimer);
+        this.healthyTimer = setTimeout(() => {
+          this.attempt = 0;
+        }, HEALTHY_MS);
+      },
+      (err) => {
+        if (this.recognizer !== recognizer) return;
+        this.scheduleRetry(`音声認識を開始できませんでした（${err}）`);
+      },
     );
+  }
+
+  /** 今の認識を閉じ、少し待ってからつなぎ直す。回数を使い切ったら止めて知らせる。 */
+  private scheduleRetry(reason: string, renew = false): void {
+    if (this.stopped || this.retryTimer) return;
+    const handlers = this.handlers;
+    if (!handlers) return;
+
+    if (this.healthyTimer) {
+      clearTimeout(this.healthyTimer);
+      this.healthyTimer = null;
+    }
+    this.closeRecognizer();
+    // 流れが終わったマイクは使い回せない。次の connect で掴み直す。
+    if (this.stream && !this.stream.active) this.releaseStream();
+
+    if (this.attempt >= MAX_RETRIES) {
+      this.fail(`${reason}。何度つなぎ直しても戻らないため止めました。`);
+      return;
+    }
+    const delay = retryDelayMs(this.attempt);
+    this.attempt += 1;
+    handlers.onStatus?.(this.source.speaker, `${this.who}: ${reason}。つなぎ直しています…`);
+
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void (async () => {
+        if (renew) {
+          try {
+            this.token = await this.renewToken();
+          } catch {
+            // 取り直せなくても、次のつなぎ直しでもう一度試す。
+          }
+        }
+        await this.connect();
+      })();
+    }, delay);
+  }
+
+  /** 続けられない失敗。この音源を止めて、画面に理由を出す。 */
+  private fail(message: string): void {
+    const handlers = this.handlers;
+    this.stop();
+    handlers?.onError(message);
   }
 
   /** 合鍵を入れ替える。認識は止めない。 */
   refresh(token: string): void {
+    this.token = token;
     if (this.recognizer) this.recognizer.authorizationToken = token;
+  }
+
+  private closeRecognizer(): void {
+    const recognizer = this.recognizer;
+    this.recognizer = null;
+    if (!recognizer) return;
+    recognizer.stopContinuousRecognitionAsync(
+      () => recognizer.close(),
+      () => recognizer.close(),
+    );
+  }
+
+  private releaseStream(): void {
+    // fromStreamInput に渡した MediaStream は SDK が持ち主ではないので、
+    // ここで明示的に止めないとマイクを掴んだままになる。
+    const stream = this.stream;
+    this.stream = null;
+    if (stream) for (const track of stream.getTracks()) track.stop();
   }
 
   stop(): void {
     this.stopped = true;
+    this.handlers = null;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.healthyTimer) {
+      clearTimeout(this.healthyTimer);
+      this.healthyTimer = null;
+    }
     const recognizer = this.recognizer;
     this.recognizer = null;
-    const stream = this.stream;
-    this.stream = null;
-    // fromStreamInput に渡した MediaStream は SDK が持ち主ではないので、
-    // ここで明示的に止めないとマイクを掴んだままになる。
-    const releaseStream = () => {
-      if (stream) for (const track of stream.getTracks()) track.stop();
-    };
     if (!recognizer) {
-      releaseStream();
+      this.releaseStream();
       return;
     }
+    const stream = this.stream;
+    this.stream = null;
+    const release = () => {
+      if (stream) for (const track of stream.getTracks()) track.stop();
+    };
     recognizer.stopContinuousRecognitionAsync(
       () => {
         recognizer.close();
-        releaseStream();
+        release();
       },
       () => {
         recognizer.close();
-        releaseStream();
+        release();
       },
     );
   }
@@ -182,7 +350,8 @@ class AzureRecognizer implements SpeechRecognizer {
       }
       if (this.stopped) return;
 
-      this.sources = wanted.map((source) => new SourceRecognition(source, this.options.lang));
+      const renewToken = async () => (await fetchToken()).token;
+      this.sources = wanted.map((source) => new SourceRecognition(source, this.options.lang, renewToken));
       // 1本ずつ独立して立ち上げる。片方が失敗しても、もう片方は動かす。
       await Promise.all(this.sources.map((s) => s.start(issued.token, issued.region, handlers)));
 

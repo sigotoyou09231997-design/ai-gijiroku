@@ -227,6 +227,12 @@ export default function RecordPage() {
             音声認識が止まっています（「終了して保存」でここまでを残せます）
           </p>
         )}
+        {recording && live.micActive && live.speechNotice && (
+          <p className="mt-3 flex items-center gap-2 rounded-lg bg-raised px-3 py-2 text-sm text-muted">
+            <Loader2 size={14} className="animate-spin" aria-hidden />
+            {live.speechNotice}
+          </p>
+        )}
         {live.speechError && (
           <p className="mt-3 rounded-lg bg-live/10 px-3 py-2 text-sm text-live">{live.speechError}</p>
         )}
