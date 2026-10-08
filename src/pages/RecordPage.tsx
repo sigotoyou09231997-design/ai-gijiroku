@@ -16,6 +16,7 @@ import {
   Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import ChatGptLink from "../components/ChatGptLink";
 import { SESSION_LABELS, useLiveSession } from "../hooks/useLiveSession";
 import { formatTime } from "../lib/format";
 import { AUTO } from "../lib/speech/devices";
@@ -514,6 +515,7 @@ export default function RecordPage() {
               <li key={item.id} className="enter rounded-xl bg-raised px-3.5 py-2.5">
                 <p className="text-sm font-bold text-ink">{item.term}</p>
                 <p className="mt-0.5 text-sm leading-relaxed text-muted">{item.explanation}</p>
+                <ChatGptLink term={item.term} />
               </li>
             ))}
           </ul>

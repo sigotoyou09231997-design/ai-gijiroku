@@ -64,6 +64,7 @@ describe("過去のセッションの画面", () => {
     expect(screen.getByText("会話中に検知した決定事項・宿題事項")).toBeTruthy();
     expect(screen.getByText("会話中に検知した気になる用語")).toBeTruthy();
     expect(screen.getByText("SPA")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /SPAをChatGPTで調べる/ }).getAttribute("target")).toBe("_blank");
     expect(screen.getByText("本日はよろしくお願いします")).toBeTruthy();
   });
 

@@ -2,6 +2,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, CheckCircle2, ChevronDown, ListChecks, ListOrdered, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import ChatGptLink from "../components/ChatGptLink";
 import { deleteSession, loadSession } from "../lib/db";
 import { formatDateTime, formatDuration, formatTime } from "../lib/format";
 import { generateSummary } from "../lib/sessionSummary";
@@ -238,6 +239,7 @@ export default function SessionDetailPage() {
                   <li key={item.id} className="rounded-lg bg-raised px-3 py-2">
                     <p className="text-sm font-semibold text-ink">{item.term}</p>
                     <p className="mt-0.5 text-sm leading-relaxed text-muted">{item.explanation}</p>
+                    <ChatGptLink term={item.term} />
                   </li>
                 ))}
               </ul>
