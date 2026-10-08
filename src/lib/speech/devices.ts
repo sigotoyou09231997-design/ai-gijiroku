@@ -81,6 +81,35 @@ export function saveChoice(choice: SourceChoice): void {
 }
 
 /**
+ * 相手の声の取り方。
+ * - device  … 仮想オーディオ（BlackHole・VB-CABLE など）の入力デバイスから聞く（通常）。
+ * - display … 画面・タブの共有で受けた音声から聞く（仮想オーディオを入れられない会社のPC用）。
+ *
+ * 選びはこの端末（のブラウザ）に憶える。会社のPCと家のPCで、それぞれ別に持てる。
+ */
+export type OtherSourceMode = "device" | "display";
+
+const OTHER_MODE_KEY = "ai-gijiroku.other-source-mode.v1";
+
+export function loadOtherMode(): OtherSourceMode {
+  if (typeof localStorage === "undefined") return "device";
+  try {
+    return localStorage.getItem(OTHER_MODE_KEY) === "display" ? "display" : "device";
+  } catch {
+    return "device";
+  }
+}
+
+export function saveOtherMode(mode: OtherSourceMode): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(OTHER_MODE_KEY, mode);
+  } catch {
+    // 保存できなくても、その場の録音は選んだ方式で動く。
+  }
+}
+
+/**
  * 選んだ憶えが、いま繋がっているデバイスの中にまだ在るかを確かめる。
  * ヘッドセットを抜き差しすると deviceId が変わるので、消えていたら既定に戻す。
  */

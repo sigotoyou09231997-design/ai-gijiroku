@@ -9,11 +9,15 @@ import {
   ensureMicPermission,
   listAudioInputs,
   loadChoice,
+  loadOtherMode,
+  type OtherSourceMode,
   reconcile,
   resolveChoice,
   saveChoice,
+  saveOtherMode,
   type SourceChoice,
 } from "../lib/speech/devices";
+import { captureDisplayAudio, isDisplayAudioSupported } from "../lib/speech/displayAudio";
 import { getSpeechProvider, resolveSpeechProvider } from "../lib/speech";
 import type { Speaker, SpeechProvider, SpeechRecognizer, SpeechSource } from "../lib/speech";
 import { speakerLabel } from "../lib/types";
@@ -60,6 +64,11 @@ export interface LiveSession {
   /** 「自動」を、いま繋がっているデバイスに置き換えたもの。画面の表示に使う。 */
   resolvedChoice: SourceChoice;
   setSourceChoice(choice: SourceChoice): void;
+  /** 相手の声の取り方。device＝仮想オーディオの入力（通常）／display＝画面・タブの共有（会社のPC用）。 */
+  otherMode: OtherSourceMode;
+  setOtherMode(mode: OtherSourceMode): void;
+  /** このブラウザが、画面・タブの音声の共有に対応しているか。 */
+  displayAudioSupported: boolean;
   refreshDevices(): Promise<void>;
   start(): void;
   /** 終了して保存する。保存したセッションのIDを返す（何も録れていなければ null）。 */
@@ -91,6 +100,7 @@ export function useLiveSession(): LiveSession {
   const [aiError, setAiError] = useState<string | null>(null);
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [sourceChoice, setSourceChoiceState] = useState<SourceChoice>(() => loadChoice());
+  const [otherMode, setOtherModeState] = useState<OtherSourceMode>(() => loadOtherMode());
 
   // 解析は setInterval から呼ぶので、最新の値を ref で持つ（state だと古い値を掴む）。
   const recognizerRef = useRef<SpeechRecognizer | null>(null);
@@ -108,6 +118,15 @@ export function useLiveSession(): LiveSession {
   const inFlightRef = useRef(false);
   const labelRef = useRef(label);
   const choiceRef = useRef(sourceChoice);
+  const otherModeRef = useRef(otherMode);
+  /** 画面・タブの共有で受けた音声。録音が終わったら必ず止める（止めないと共有中の表示が残る）。 */
+  const sharedStreamRef = useRef<MediaStream | null>(null);
+
+  const releaseShared = useCallback(() => {
+    const shared = sharedStreamRef.current;
+    sharedStreamRef.current = null;
+    if (shared) for (const track of shared.getTracks()) track.stop();
+  }, []);
 
   useEffect(() => {
     labelRef.current = label;
@@ -115,6 +134,9 @@ export function useLiveSession(): LiveSession {
   useEffect(() => {
     choiceRef.current = sourceChoice;
   }, [sourceChoice]);
+  useEffect(() => {
+    otherModeRef.current = otherMode;
+  }, [otherMode]);
 
   // Azure が使える設定かをサーバーに聞いて、使える方に差し替える。
   useEffect(() => {
@@ -172,6 +194,11 @@ export function useLiveSession(): LiveSession {
   const setSourceChoice = useCallback((choice: SourceChoice) => {
     setSourceChoiceState(choice);
     saveChoice(choice);
+  }, []);
+
+  const setOtherMode = useCallback((mode: OtherSourceMode) => {
+    setOtherModeState(mode);
+    saveOtherMode(mode);
   }, []);
 
   const runAnalyze = useCallback(
@@ -243,8 +270,9 @@ export function useLiveSession(): LiveSession {
     return () => {
       recognizerRef.current?.stop();
       recognizerRef.current = null;
+      releaseShared();
     };
-  }, []);
+  }, [releaseShared]);
 
   const beginRecording = useCallback((sources: SpeechSource[] | undefined): void => {
     segmentsRef.current = [];
@@ -299,12 +327,13 @@ export function useLiveSession(): LiveSession {
         setMicActive(false);
         recognizerRef.current?.stop();
         recognizerRef.current = null;
+        releaseShared();
       },
     });
 
     setMicActive(true);
     setStatus("recording");
-  }, [provider]);
+  }, [provider, releaseShared]);
 
   const startingRef = useRef(false);
 
@@ -316,10 +345,25 @@ export function useLiveSession(): LiveSession {
         // 分けて聞けるときは、押した瞬間に繋がっているデバイスで「自動」を決める。
         let sources: SpeechSource[] | undefined;
         if (providerInfo.supportsMultipleSources) {
+          // 会社のPC用（画面・タブの共有）は、ボタンを押した直後でないとブラウザに断られる。
+          // 他の準備より先に、共有の選択画面を出す。
+          let shared: MediaStream | undefined;
+          if (otherModeRef.current === "display") {
+            try {
+              shared = await captureDisplayAudio();
+            } catch (error) {
+              // 共有できなかったら録音は始めない（相手の声が無いまま始めて、黙って空になるのを避ける）。
+              setSpeechError(error instanceof Error ? error.message : "画面・タブの共有を始められませんでした。");
+              return;
+            }
+          }
           const found = await applyDevices().catch(() => [] as AudioInputDevice[]);
           const choice = resolveChoice(choiceRef.current, found);
           sources = [{ speaker: "self", deviceId: choice.selfDeviceId || undefined }];
-          if (choice.otherDeviceId) {
+          if (shared) {
+            sharedStreamRef.current = shared;
+            sources.push({ speaker: "other", stream: shared });
+          } else if (choice.otherDeviceId) {
             sources.push({ speaker: "other", deviceId: choice.otherDeviceId });
           }
         }
@@ -337,6 +381,7 @@ export function useLiveSession(): LiveSession {
     setStatus("finishing");
     recognizerRef.current?.stop();
     recognizerRef.current = null;
+    releaseShared();
     setMicActive(false);
     setInterim({});
     setNotices({});
@@ -368,7 +413,7 @@ export function useLiveSession(): LiveSession {
     sessionIdRef.current = null;
     setStatus("idle");
     return sessionId;
-  }, [runAnalyze]);
+  }, [runAnalyze, releaseShared]);
 
   return {
     status,
@@ -392,6 +437,9 @@ export function useLiveSession(): LiveSession {
     sourceChoice,
     resolvedChoice,
     setSourceChoice,
+    otherMode,
+    setOtherMode,
+    displayAudioSupported: isDisplayAudioSupported(),
     refreshDevices,
     start,
     finish,

@@ -1,5 +1,6 @@
 import * as SDK from "microsoft-cognitiveservices-speech-sdk";
 import { audioConstraints } from "./audioConstraints";
+import { SHARE_ENDED_MESSAGE } from "./displayAudio";
 import type {
   SpeechChunk,
   SpeechCreateOptions,
@@ -140,7 +141,22 @@ class SourceRecognition {
     const handlers = this.handlers;
     if (this.stopped || !handlers) return;
 
-    if (!this.stream || !this.stream.active) {
+    if (this.source.stream) {
+      // 共有された音声。マイクと違い、こちらから掴み直すことはできない。
+      const shared = this.source.stream;
+      if (!shared.active) {
+        this.endShared(handlers);
+        return;
+      }
+      if (!this.stream) {
+        this.stream = shared;
+        for (const track of shared.getAudioTracks()) {
+          track.addEventListener("ended", () => {
+            if (this.stream === shared) this.endShared(this.handlers);
+          });
+        }
+      }
+    } else if (!this.stream || !this.stream.active) {
       let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(this.source) });
@@ -190,6 +206,11 @@ class SourceRecognition {
     recognizer.canceled = (_s, e) => {
       if (this.recognizer !== recognizer) return;
       if (e.reason !== SDK.CancellationReason.Error) {
+        // 共有された音声は掴み直せないので、つなぎ直さず止まったことを知らせる。
+        if (this.source.stream) {
+          this.endShared(handlers);
+          return;
+        }
         // 音の流れが終わった（EndOfStream）。以前はここで黙って止まっていた。
         this.scheduleRetry("マイクの音が途切れました");
         return;
@@ -257,6 +278,12 @@ class SourceRecognition {
         await this.connect();
       })();
     }, delay);
+  }
+
+  /** 共有が止まった。つなぎ直せないので、この音源だけ止めて知らせる（もう一方の音源は続ける）。 */
+  private endShared(handlers: SpeechHandlers | null): void {
+    this.stop();
+    handlers?.onStatus?.(this.source.speaker, `${this.who}: ${SHARE_ENDED_MESSAGE}`);
   }
 
   /** 続けられない失敗。この音源を止めて、画面に理由を出す。 */

@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { AUTO, autoChoice, emptyChoice, pickOtherDevice, pickSelfDevice, reconcile, resolveChoice } from "./devices";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  AUTO,
+  autoChoice,
+  emptyChoice,
+  loadOtherMode,
+  pickOtherDevice,
+  pickSelfDevice,
+  reconcile,
+  resolveChoice,
+  saveOtherMode,
+} from "./devices";
 import type { AudioInputDevice } from "./devices";
 
 const devices: AudioInputDevice[] = [
@@ -76,5 +86,25 @@ describe("自動で選ぶ", () => {
 
   it("「自動」は一覧に無くても消さずに残す", () => {
     expect(reconcile(autoChoice, [])).toEqual(autoChoice);
+  });
+});
+
+describe("相手の声の取り方（会社のPC用の切り替え）", () => {
+  afterEach(() => localStorage.clear());
+
+  it("何も選んでいなければ、通常（仮想オーディオ）で始める", () => {
+    expect(loadOtherMode()).toBe("device");
+  });
+
+  it("会社のPC用に切り替えたら、次に開いたときも憶えている", () => {
+    saveOtherMode("display");
+    expect(loadOtherMode()).toBe("display");
+    saveOtherMode("device");
+    expect(loadOtherMode()).toBe("device");
+  });
+
+  it("憶えが壊れていても、通常に倒す", () => {
+    localStorage.setItem("ai-gijiroku.other-source-mode.v1", "なにか違う値");
+    expect(loadOtherMode()).toBe("device");
   });
 });

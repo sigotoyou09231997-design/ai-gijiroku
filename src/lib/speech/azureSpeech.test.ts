@@ -155,3 +155,76 @@ describe("途中で切れたとき", () => {
     expect(created).toHaveLength(1);
   });
 });
+
+describe("画面・タブの共有で受けた音声（会社のPC用）", () => {
+  /** 共有された音声の偽物。end() で「共有が止まった」を起こせる。 */
+  function sharedStream() {
+    let ended: (() => void) | undefined;
+    const track = {
+      stop: vi.fn(),
+      addEventListener: vi.fn((type: string, callback: () => void) => {
+        if (type === "ended") ended = callback;
+      }),
+    };
+    const stream = { active: true, getTracks: () => [track], getAudioTracks: () => [track] };
+    return {
+      stream: stream as unknown as MediaStream,
+      track,
+      end: () => {
+        stream.active = false;
+        ended?.();
+      },
+    };
+  }
+
+  it("共有された音声を聞き、マイクは掴まない", async () => {
+    const shared = sharedStream();
+    const handlers = { onChunk: vi.fn(), onError: vi.fn(), onStatus: vi.fn() };
+    azureSpeechProvider
+      .create({ lang: "ja-JP", sources: [{ speaker: "other", stream: shared.stream }] })
+      .start(handlers);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    expect(created).toHaveLength(1);
+    expect(handlers.onError).not.toHaveBeenCalled();
+  });
+
+  it("共有が止まったら、つなぎ直さず、止まったと知らせる（エラーにはしない）", async () => {
+    const shared = sharedStream();
+    const handlers = { onChunk: vi.fn(), onError: vi.fn(), onStatus: vi.fn() };
+    azureSpeechProvider
+      .create({ lang: "ja-JP", sources: [{ speaker: "other", stream: shared.stream }] })
+      .start(handlers);
+    await vi.advanceTimersByTimeAsync(0);
+
+    shared.end();
+
+    expect(handlers.onStatus).toHaveBeenLastCalledWith("other", expect.stringContaining("共有が止まりました"));
+    expect(created[0].closed).toBe(true);
+    expect(shared.track.stop).toHaveBeenCalled();
+    // マイクと違って掴み直せないので、待ってもつなぎ直さない。
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(created).toHaveLength(1);
+    expect(handlers.onError).not.toHaveBeenCalled();
+  });
+
+  it("共有が止まっても、自分のマイクの認識は続く", async () => {
+    const shared = sharedStream();
+    const handlers = { onChunk: vi.fn(), onError: vi.fn(), onStatus: vi.fn() };
+    azureSpeechProvider
+      .create({
+        lang: "ja-JP",
+        sources: [{ speaker: "self" }, { speaker: "other", stream: shared.stream }],
+      })
+      .start(handlers);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(created).toHaveLength(2);
+
+    shared.end();
+
+    // 止まったのは共有の側だけ。自分のマイクの認識は閉じない。
+    expect(created.filter((r) => r.closed)).toHaveLength(1);
+    expect(handlers.onError).not.toHaveBeenCalled();
+  });
+});

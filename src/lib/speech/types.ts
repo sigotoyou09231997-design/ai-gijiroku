@@ -31,6 +31,12 @@ export interface SpeechSource {
    * 未指定なら既定のマイクを使う。
    */
   deviceId?: string;
+  /**
+   * すでに取得してある音声（画面・タブの共有など）。あれば、マイクを掴まずこれを聞く。
+   * 共有はユーザーの操作でしか始められないので、途切れても掴み直さない（止まったら知らせるだけ）。
+   * 使い終わったら、受け取った側が止める。
+   */
+  stream?: MediaStream;
 }
 
 export interface SpeechHandlers {

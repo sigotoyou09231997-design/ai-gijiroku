@@ -1,4 +1,5 @@
 import { audioConstraints } from "./audioConstraints";
+import { SHARE_ENDED_MESSAGE } from "./displayAudio";
 import type {
   SpeechCreateOptions,
   SpeechHandlers,
@@ -147,15 +148,28 @@ class SourceStream {
       return;
     }
 
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(this.source) });
-    } catch {
-      handlers.onError(
-        this.source.deviceId
-          ? "選んだ入力デバイスを開けませんでした。抜き差ししていないか、一覧を更新して選び直してください。"
-          : "マイクを開けませんでした。ブラウザの設定でこのサイトのマイクを許可してください。",
-      );
-      return;
+    if (this.source.stream) {
+      // 共有された音声。マイクと違い、こちらから掴み直すことはできない。止まったら知らせるだけ。
+      const shared = this.source.stream;
+      this.stream = shared;
+      for (const track of shared.getAudioTracks()) {
+        track.addEventListener("ended", () => {
+          if (this.stopped || this.stream !== shared) return;
+          this.stop();
+          handlers.onStatus?.(this.source.speaker, `相手の声: ${SHARE_ENDED_MESSAGE}`);
+        });
+      }
+    } else {
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(this.source) });
+      } catch {
+        handlers.onError(
+          this.source.deviceId
+            ? "選んだ入力デバイスを開けませんでした。抜き差ししていないか、一覧を更新して選び直してください。"
+            : "マイクを開けませんでした。ブラウザの設定でこのサイトのマイクを許可してください。",
+        );
+        return;
+      }
     }
     if (this.stopped) {
       this.releaseStream();
