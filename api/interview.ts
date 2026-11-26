@@ -27,8 +27,11 @@ type FullModelKey = keyof typeof FULL_MODELS;
 type Effort = "low" | "medium" | "high";
 type Stage = "quick" | "full" | "warm";
 
-/** 既定。評価（24問）の結果で決めた。 */
-const DEFAULT_FULL_MODEL: FullModelKey = "opus";
+/**
+ * 既定。評価（24問）で4通り（Opus 5.5 / Fable 5.2 × low / medium）を比べ、どれも経歴への忠実さ・答えになっている率は
+ * 同じだったので、全文が出るまでが一番速かった Fable 5.2 の low にした（中央 2.9 秒・最初の1文 1.2 秒）。
+ */
+const DEFAULT_FULL_MODEL: FullModelKey = "fable";
 const DEFAULT_EFFORT: Effort = "low";
 /** 1段目（Haiku）に考える段階を持たせるか。評価で決める。 */
 const DEFAULT_QUICK_THINK = false;

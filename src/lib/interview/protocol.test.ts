@@ -14,10 +14,16 @@ describe("面接の回答の読み取り", () => {
     expect(parsed.lines[0].text).toBe("私の強みは、作ったものを使いながら直し続けることです。");
   });
 
-  it("質問ではないときは @なし だけ", () => {
+  it("質問ではないときは @なし だけ（改行で終わらなくても読む）", () => {
     const parsed = parseAnswer("@なし\n");
     expect(parsed.skip).toBe(true);
     expect(parsed.lines).toEqual([]);
+    expect(parseAnswer("@なし").skip).toBe(true);
+  });
+
+  it("書き終わっていれば、改行の無い最後の @ の行も読む", () => {
+    expect(parseAnswer("@想定 1").qaRef).toBeUndefined();
+    expect(parseAnswer("@想定 1", true).qaRef).toBe(1);
   });
 
   it("経歴に無い経験の印を読む。想定 0 は「当たり無し」", () => {

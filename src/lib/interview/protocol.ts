@@ -98,17 +98,19 @@ function isMetaLine(raw: string): boolean {
  * 最後の行がまだ途中でも本文なら出す（流れているように見せるため）。
  * 「@」で始まる途中の行は、読み切れるまで出さない。
  */
-export function parseAnswer(text: string): ParsedAnswer {
+export function parseAnswer(text: string, done = false): ParsedAnswer {
   const result: ParsedAnswer = { skip: false, noExperience: false, lines: [] };
   const rawLines = text.replace(/\r/g, "").split("\n");
-  const endsWithNewline = text.endsWith("\n");
+  // 書き終わっていれば、改行で終わっていなくても最後の行は読み切れている。
+  const endsWithNewline = done || text.endsWith("\n");
   rawLines.forEach((raw, index) => {
     const isLast = index === rawLines.length - 1;
     const complete = !isLast || endsWithNewline;
     if (!raw.trim()) return;
     if (isMetaLine(raw)) {
       // 途中の「@質問 …」は、続きが来るまで待つ必要がない（最後の行に来るので、そのまま読む）。
-      if (complete || /^[\s　]*[@＠]質問/.test(raw)) applyMeta(raw, result);
+      // 「@なし」「@経歴外」は続きのある書き方が無いので、改行を待たずに読む（判断を早く出すため）。
+      if (complete || /^[\s　]*[@＠](?:質問|なし[\s　。]*$|経歴外[\s　。]*$)/.test(raw)) applyMeta(raw, result);
       return;
     }
     // 「@」の書きかけ（1文字目だけ届いた）かもしれない行は出さない。

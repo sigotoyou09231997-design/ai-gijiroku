@@ -66,8 +66,9 @@ describe("面接モードの回答の流れ", () => {
     expect(result.current.exportMarkdown("面接で聞かれた質問")).toContain("## 強みは何ですか");
   });
 
-  it("2段目が「質問ではない」と言ったものは出さない", async () => {
-    stubAnswers({ quick: "@なし\n", full: "@なし\n" });
+  it("2段目が「質問ではない」と言ったものは、1段目が何か書いていても出さない", async () => {
+    // 実際の返事は改行で終わらないことがある（評価で見つけた）。
+    stubAnswers({ quick: "結論：ありがとうございます。", full: "@なし" });
     const { result } = renderHook(() => useInterviewAssist(true));
     act(() => result.current.rehearse("今日は雨ですね", "other"));
     await waitFor(() => expect(result.current.cards[0]?.full.status).toBe("done"));
