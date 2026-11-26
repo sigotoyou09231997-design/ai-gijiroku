@@ -46,14 +46,22 @@ function cleanLine(raw: string): string {
     .trim();
 }
 
+/** 「（この発言は質問ではないため…）」のような、モデルの断り書き。読み上げる文ではないので出さない。 */
+function isAside(text: string): boolean {
+  return /^[（(]/.test(text);
+}
+
 function parseContentLine(raw: string): AnswerLine | null {
   const line = cleanLine(raw);
   if (!line) return null;
   for (const label of LABELS) {
     const match = line.match(new RegExp(`^[【［\\[]?${label}[】］\\]]?[\\s　]*[：:][\\s　]*`));
-    if (match) return { label, text: line.slice(match[0].length).trim() };
+    if (match) {
+      const text = line.slice(match[0].length).trim();
+      return isAside(text) ? null : { label, text };
+    }
   }
-  return { text: line };
+  return isAside(line) ? null : { text: line };
 }
 
 /** 「@」で始まる行を読む。読めた項目を result に入れる。 */

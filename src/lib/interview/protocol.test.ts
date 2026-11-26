@@ -50,6 +50,13 @@ describe("面接の回答の読み取り", () => {
     expect(parsed.lines).toEqual([{ label: "結論", text: "はい。" }]);
   });
 
+  it("括弧で始まる断り書き（読み上げる文ではない）は出さない", () => {
+    const parsed = parseAnswer("@なし\n結論：（この発言は質問ではないため、回答は不要です。）\n");
+    expect(parsed.skip).toBe(true);
+    expect(parsed.lines).toEqual([]);
+    expect(parseAnswer("（補足）\n結論：はい。").lines).toEqual([{ label: "結論", text: "はい。" }]);
+  });
+
   it("札の無い行もそのまま本文として出す", () => {
     const parsed = parseAnswer("経験はありません。");
     expect(parsed.lines).toEqual([{ text: "経験はありません。" }]);
