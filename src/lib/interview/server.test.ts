@@ -28,7 +28,7 @@ describe("面接モードのサーバー関数", () => {
     expect(tooLong.ok ? 0 : tooLong.status).toBe(413);
 
     const parsed = parseInterviewBody({ stage: "full", question: " 強みは？ ", model: "fable", effort: "medium" });
-    expect(parsed.ok && parsed.input).toMatchObject({ question: "強みは？", model: "fable", effort: "medium", fast: false });
+    expect(parsed.ok && parsed.input).toMatchObject({ question: "強みは？", model: "fable", effort: "medium", fast: true });
     // 知らない値は既定に倒す（勝手に高いモデル・深い考えにしない）。
     const fallback = parseInterviewBody({ stage: "full", question: "強みは", model: "x", effort: "max" });
     expect(fallback.ok && fallback.input.effort).not.toBe("max");
@@ -100,6 +100,34 @@ describe("面接モードのサーバー関数", () => {
     // Opus 5.5 / Fable 5.2 は考える段階を止められない（止める指定は 400 になる）。
     expect(params.thinking).toBeUndefined();
     expect(params.tool_choice).toBeUndefined();
+    // 速いモードは Fable 5.2 だけ（Opus 5.5 との組み合わせは試していない）。
+    expect(params.speed).toBeUndefined();
+  });
+
+  it("Fable 5.2 は既定で速いモード。上限に当たったら普通の速さで出し直す", async () => {
+    const calls: Record<string, unknown>[] = [];
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const stream = vi.fn((params: Record<string, unknown>) => {
+      calls.push(params);
+      if (params.speed === "fast") {
+        return {
+          // eslint-disable-next-line require-yield
+          async *[Symbol.asyncIterator]() {
+            throw new Anthropic.RateLimitError(429, undefined, "rate limited", new Headers());
+          },
+          finalMessage: async () => ({}),
+        };
+      }
+      return fakeStream(["結論：はい。"], { model: "claude-fable-5-2", stop_reason: "end_turn", usage });
+    });
+    const client = { messages: { stream: vi.fn() }, beta: { messages: { stream } } };
+    const events: Record<string, unknown>[] = [];
+    const parsed = parseInterviewBody({ stage: "full", question: "強みは" });
+    if (!parsed.ok) throw new Error("parse failed");
+    expect(parsed.input).toMatchObject({ model: "fable", effort: "low", fast: true });
+    await runInterview(client as never, parsed.input, (event) => events.push(event), new AbortController().signal);
+    expect(calls.map((call) => call.speed)).toEqual(["fast", undefined]);
+    expect(events.map((event) => event.t)).toEqual(["d", "done"]);
   });
 
   it("安全の判定で断られたら、終わりではなく失敗として知らせる", async () => {

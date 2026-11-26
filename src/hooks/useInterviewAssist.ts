@@ -48,6 +48,8 @@ export interface InterviewCard {
   full: StageView;
   /** キー・ボタンで本人が回した。 */
   manual: boolean;
+  /** 作り直す前の2段目の文。新しい文が届くまで、消さずに出しておく（キーで作り直したとき・言い足されたとき）。 */
+  previousFull?: string;
 }
 
 export interface CardView extends InterviewCard {
@@ -59,6 +61,8 @@ export interface CardView extends InterviewCard {
    * 12問中2〜4問で経歴に無いことを足していた（土台がある質問では36問とも経歴どおり）。
    */
   quickLines: AnswerLine[];
+  /** 作り直している間に出しておく、前の回答。 */
+  staleLines: AnswerLine[];
   /** 画面に出すか（質問ではないと判断されたものは出さない）。 */
   visible: boolean;
   /** 土台にした想定問答（AI の判断があればそちら、無ければ手元の照合）。 */
@@ -104,9 +108,11 @@ export function viewCard(card: InterviewCard, pairs: QaPair[]): CardView {
   const quickGrounded = !quickParsed.skip && quickParsed.qaRef !== undefined && pairs[quickParsed.qaRef - 1] !== undefined;
   const quickLines = quickGrounded ? quickParsed.lines : [];
   const quickHasContent = quickLines.length > 0;
+  const previous = card.previousFull ? parseAnswer(card.previousFull, true) : null;
+  const staleLines = !fullHasContent && !quickHasContent && previous && !previous.skip ? previous.lines : [];
   // 2段目（正確な方）が「質問ではない」と言ったら、1段目や手元の照合より優先して出さない。
   const fullSaysSkip = fullParsed.skip;
-  const visible = !fullSaysSkip && (fullHasContent || quickHasContent || card.local !== null);
+  const visible = !fullSaysSkip && (fullHasContent || quickHasContent || card.local !== null || staleLines.length > 0);
 
   const modelRef = fullParsed.qaRef ?? (fullHasContent ? undefined : quickParsed.qaRef);
   let qa: CardView["qa"] = null;
@@ -121,6 +127,7 @@ export function viewCard(card: InterviewCard, pairs: QaPair[]): CardView {
     quickParsed,
     fullParsed,
     quickLines,
+    staleLines,
     visible,
     qa,
     noExperience: fullHasContent ? fullParsed.noExperience : quickParsed.noExperience,
@@ -207,6 +214,7 @@ export function useInterviewAssist(enabled: boolean): InterviewAssist {
         quick: emptyStage(),
         full: emptyStage(),
         manual,
+        ...(reuse && previous.full.text ? { previousFull: previous.full.text } : {}),
       };
       // 止めた方の回答は、途中まで出ていたぶんを残して「止めた」にする。
       const rest = cardsRef.current
@@ -235,6 +243,7 @@ export function useInterviewAssist(enabled: boolean): InterviewAssist {
               question,
               model: p.fullModel,
               effort: p.effort,
+              fast: p.fast,
             },
             {
               onText(delta) {
@@ -357,7 +366,14 @@ export function useInterviewAssist(enabled: boolean): InterviewAssist {
   const prewarm = useCallback(() => {
     const { materials: m, prefs: p, qaText: qa } = inputsRef.current;
     if (!m.profile && !qa) return;
-    void prewarmInterview({ profile: m.profile, company: m.company, qa, model: p.fullModel, effort: p.effort });
+    void prewarmInterview({
+      profile: m.profile,
+      company: m.company,
+      qa,
+      model: p.fullModel,
+      effort: p.effort,
+      fast: p.fast,
+    });
   }, []);
 
   const reload = useCallback(() => {

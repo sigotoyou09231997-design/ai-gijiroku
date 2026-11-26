@@ -115,6 +115,35 @@ describe("面接モードの回答の流れ", () => {
     expect(result.current.cards.map((card) => card.question)).toEqual(["Java の経験はありますか", "強みを教えてください"]);
   });
 
+  it("キーで作り直している間は、前の回答を消さずに出しておく", async () => {
+    let release: (() => void) | null = null;
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { stage: string };
+        calls += 1;
+        if (calls > 2) {
+          // 作り直しの返事はしばらく来ない。
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return ndjson([{ t: "d", v: body.stage === "full" ? "@想定 0\n結論：前の答えです。" : "@想定 0" }, { t: "done" }]);
+      }),
+    );
+    const { result } = renderHook(() => useInterviewAssist(true));
+    act(() => result.current.rehearse("Java の経験はありますか", "other"));
+    await waitFor(() => expect(result.current.cards[0]?.full.status).toBe("done"));
+    act(() => result.current.triggerNow());
+    const card = result.current.cards[0];
+    expect(card.full.status).toBe("streaming");
+    expect(card.visible).toBe(true);
+    expect(card.staleLines).toEqual([{ label: "結論", text: "前の答えです。" }]);
+    expect(result.current.cards).toHaveLength(1);
+    act(() => (release as (() => void) | null)?.());
+  });
+
   it("面接モードでなければ、発言が来ても回さない", () => {
     const fetchMock = stubAnswers({ quick: "", full: "" });
     const { result } = renderHook(() => useInterviewAssist(false));

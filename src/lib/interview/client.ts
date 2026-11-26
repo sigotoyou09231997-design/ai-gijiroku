@@ -26,6 +26,8 @@ export interface InterviewRequest {
   question: string;
   model?: FullModelChoice;
   effort?: EffortChoice;
+  /** 速いモード（Fable 5.2 だけに効く）。 */
+  fast?: boolean;
 }
 
 export interface InterviewUsage {

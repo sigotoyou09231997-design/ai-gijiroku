@@ -64,7 +64,8 @@ function CardBody({ card, big }: { card: CardView; big: boolean }) {
   const [showPrepared, setShowPrepared] = useState(true);
   const fullLines = card.fullParsed.lines;
   const useFull = fullLines.length > 0;
-  const lines = useFull ? fullLines : card.quickLines;
+  const stale = !useFull && card.quickLines.length === 0 && card.staleLines.length > 0;
+  const lines = useFull ? fullLines : stale ? card.staleLines : card.quickLines;
   const fullRunning = card.full.status === "streaming";
   const quickRunning = card.quick.status === "streaming";
 
@@ -81,8 +82,11 @@ function CardBody({ card, big }: { card: CardView; big: boolean }) {
         {card.noExperience && (
           <span className="rounded-full bg-live/12 px-2.5 py-1 text-[11px] font-bold text-live">経歴に無い</span>
         )}
-        {!useFull && lines.length > 0 && (
+        {!useFull && !stale && lines.length > 0 && (
           <span className="rounded-full border border-line px-2.5 py-1 text-[11px] text-faint">速報</span>
+        )}
+        {stale && (
+          <span className="rounded-full border border-line px-2.5 py-1 text-[11px] text-faint">前の回答（作り直しています）</span>
         )}
         {fullRunning && (
           <span className="flex items-center gap-1 text-[11px] text-muted">
@@ -203,6 +207,7 @@ export default function InterviewPanel({ assist, recording, title }: InterviewPa
         <h2 className="text-[15px] font-bold tracking-tight">面接の回答</h2>
         <span className="text-[11px] text-faint">
           {FULL_MODEL_LABELS[assist.prefs.fullModel]} · {EFFORT_LABELS[assist.prefs.effort]}
+          {assist.prefs.fast && assist.prefs.fullModel === "fable" && " · 速いモード"}
         </span>
         <div className="grow" />
         <Link
