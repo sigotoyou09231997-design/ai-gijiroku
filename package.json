@@ -12,6 +12,7 @@
     "serve": "netlify dev"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.14.0",
     "@vercel/blob": "^2.8.0",
     "date-fns": "^4.1.0",
     "dexie": "^4.0.11",

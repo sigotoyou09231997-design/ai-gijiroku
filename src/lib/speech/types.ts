@@ -73,6 +73,11 @@ export interface SpeechCreateOptions {
    * 分けて聞けないプロバイダは先頭の1本だけを使う。
    */
   sources?: SpeechSource[];
+  /**
+   * よく出る言葉（社名・人名・技術用語）。聞き間違いを減らすために音声認識へ渡す。
+   * Azure は phrase list、Deepgram は keywords（Nova-3 は keyterm）。対応していなければ無視する。
+   */
+  phrases?: string[];
 }
 
 export interface SpeechProvider {

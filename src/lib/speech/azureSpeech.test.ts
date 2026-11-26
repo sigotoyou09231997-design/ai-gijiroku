@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * 本物は WebSocket とマイクが要るので、テストでは「打ち切りの知らせ」を手で起こす。
  */
 const created: FakeRecognizer[] = [];
+/** phrase list に足された言葉（認識器ごと）。 */
+const phraseLists: { recognizer: unknown; phrases: string[] }[] = [];
 
 class FakeRecognizer {
   recognizing: ((s: unknown, e: unknown) => void) | null = null;
@@ -32,6 +34,11 @@ vi.mock("microsoft-cognitiveservices-speech-sdk", () => ({
   },
   AudioConfig: { fromStreamInput: () => ({}) },
   SpeechRecognizer: FakeRecognizer,
+  PhraseListGrammar: {
+    fromRecognizer: (recognizer: unknown) => ({
+      addPhrases: (phrases: string[]) => phraseLists.push({ recognizer, phrases: [...phrases] }),
+    }),
+  },
   ResultReason: { RecognizedSpeech: 3 },
   CancellationReason: { Error: 0, EndOfStream: 1 },
   CancellationErrorCode: {
@@ -58,6 +65,7 @@ let tokenCount = 0;
 beforeEach(() => {
   vi.useFakeTimers();
   created.length = 0;
+  phraseLists.length = 0;
   tokenCount = 0;
   vi.stubGlobal(
     "fetch",
@@ -81,6 +89,30 @@ async function startOne() {
   await vi.advanceTimersByTimeAsync(0);
   return { handlers, recognizer };
 }
+
+describe("よく出る言葉（phrase list）", () => {
+  it("渡された言葉を、認識を始める前に付ける。つなぎ直したときも付け直す", async () => {
+    const handlers = { onChunk: vi.fn(), onError: vi.fn(), onStatus: vi.fn() };
+    const recognizer = azureSpeechProvider.create({
+      lang: "ja-JP",
+      sources: [{ speaker: "other" }],
+      phrases: ["サンプルテック", "TypeScript"],
+    });
+    recognizer.start(handlers);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(phraseLists).toEqual([{ recognizer: created[0], phrases: ["サンプルテック", "TypeScript"] }]);
+
+    created[0].canceled?.(null, { reason: 0, errorCode: 4, errorDetails: "websocket error code: 1006" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(phraseLists).toHaveLength(2);
+    expect(phraseLists[1].recognizer).toBe(created[1]);
+  });
+
+  it("言葉が無ければ phrase list は作らない", async () => {
+    await startOne();
+    expect(phraseLists).toEqual([]);
+  });
+});
 
 describe("打ち切りの理由の分け方", () => {
   it("利用枠の超過は、1007 で文面に Quota とあるものも含めて quota", () => {

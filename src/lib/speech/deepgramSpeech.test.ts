@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { deepgramLanguage, pickMimeType } from "./deepgramSpeech";
+import { deepgramLanguage, listenUrl, phraseParams, pickMimeType } from "./deepgramSpeech";
 
 /**
  * ここを間違えると、接続も課金も成立したまま結果だけが空で返る。
@@ -55,5 +55,27 @@ describe("送る音の形の選び方", () => {
   it("どれにも対応していなければ undefined を返す", () => {
     stubMediaRecorder([]);
     expect(pickMimeType()).toBeUndefined();
+  });
+});
+
+describe("よく出る言葉の渡し方", () => {
+  it("Nova-2 は keywords、Nova-3 は keyterm で渡す", () => {
+    expect(phraseParams("nova-2", ["サンプルテック", "React"])).toEqual([
+      ["keywords", "サンプルテック"],
+      ["keywords", "React"],
+    ]);
+    expect(phraseParams("nova-3", ["React"])).toEqual([["keyterm", "React"]]);
+  });
+
+  it("「:」を含む語（強さの指定と紛れる）と空の語は渡さず、100語で切る", () => {
+    expect(phraseParams("nova-2", ["a:b", " ", "React"])).toEqual([["keywords", "React"]]);
+    expect(phraseParams("nova-2", Array.from({ length: 120 }, (_, i) => `w${i}`))).toHaveLength(100);
+  });
+
+  it("接続先の URL に付く（言葉が無ければ付かない）", () => {
+    const url = new URL(listenUrl("ja-JP", "nova-2", ["サンプルテック"]));
+    expect(url.searchParams.getAll("keywords")).toEqual(["サンプルテック"]);
+    expect(url.searchParams.get("language")).toBe("ja");
+    expect(new URL(listenUrl("ja-JP", "nova-2")).searchParams.has("keywords")).toBe(false);
   });
 });

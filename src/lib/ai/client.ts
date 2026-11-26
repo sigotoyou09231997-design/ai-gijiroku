@@ -139,6 +139,8 @@ export interface AnalyzeInput {
   recent: string;
   /** 面接／打ち合わせ など。回答案の口調を合わせるために渡す。 */
   label: string;
+  /** 面接モード。質問と回答案は /api/interview で出すので、ここでは拾わせない。 */
+  skipQuestions?: boolean;
 }
 
 export interface AnalyzeOutput {

@@ -50,6 +50,22 @@ export interface ActionItem {
   at: number;
 }
 
+/**
+ * 面接モードで、面接官に聞かれた質問（次の想定問答に足すための記録）。
+ * 回答の文面は経歴から作ったものなので、セッションには残さない（控えがサーバーに送られるため）。
+ */
+export interface InterviewQuestionRecord {
+  id: string;
+  /** 聞かれたこと（AI が整えた1文。無ければ文字起こしのまま）。 */
+  question: string;
+  /** epoch ms */
+  at: number;
+  /** 土台にした想定問答の番号（1始まり）。想定外なら undefined。 */
+  qaRef?: number;
+  /** 経歴に無い経験を聞かれた。 */
+  noExperience?: boolean;
+}
+
 /** セッション終了後にまとめて作る議事録風のまとめ。 */
 export interface SessionSummary {
   /** 要点 */
@@ -76,6 +92,8 @@ export interface MeetingSession {
   questions: DetectedQuestion[];
   actions: ActionItem[];
   terms: DetectedTerm[];
+  /** 面接モードで聞かれた質問。面接モード以外・この項目より前のセッションには無い。 */
+  interviewQuestions?: InterviewQuestionRecord[];
   summary?: SessionSummary;
   /** 要約の生成に失敗したときの理由（画面に出して、あとで作り直せるようにする）。 */
   summaryError?: string;

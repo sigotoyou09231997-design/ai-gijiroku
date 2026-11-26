@@ -106,7 +106,23 @@ export function deepgramLanguage(lang: string): string {
   return normalized.split("-")[0];
 }
 
-function listenUrl(lang: string, model: string): string {
+/** Deepgram に渡す言葉の上限（keywords は1回100語まで）。 */
+const MAX_KEYWORDS = 100;
+
+/**
+ * よく出る言葉の渡し方。Nova-3 は keyterm、それより前のモデル（Nova-2 など）は keywords。
+ * keywords は語ごとに「語:強さ」で渡せるが、強くしすぎると別の言葉まで寄ってしまうので既定の強さにする。
+ */
+export function phraseParams(model: string, phrases: string[]): [string, string][] {
+  const key = /^nova-3/.test(model) ? "keyterm" : "keywords";
+  return phrases
+    .map((phrase) => phrase.trim())
+    .filter((phrase) => phrase.length > 0 && !phrase.includes(":"))
+    .slice(0, MAX_KEYWORDS)
+    .map((phrase) => [key, phrase]);
+}
+
+export function listenUrl(lang: string, model: string, phrases: string[] = []): string {
   const params = new URLSearchParams({
     model,
     language: deepgramLanguage(lang),
@@ -121,6 +137,7 @@ function listenUrl(lang: string, model: string): string {
     utterance_end_ms: "1000",
     vad_events: "true",
   });
+  for (const [key, value] of phraseParams(model, phrases)) params.append(key, value);
   return `${LISTEN_URL}?${params.toString()}`;
 }
 
@@ -139,6 +156,7 @@ class SourceStream {
   constructor(
     private readonly source: SpeechSource,
     private readonly lang: string,
+    private readonly phrases: string[] = [],
   ) {}
 
   async start(token: string, model: string, handlers: SpeechHandlers): Promise<void> {
@@ -183,7 +201,7 @@ class SourceStream {
     // それは購読キーを直に渡すときの形で、/v1/auth/grant で取った合鍵（JWT）では
     // 弾かれる（1006 で閉じられる）。URL の access_token に載せる形も同じく通らない。
     // 実際に3通り試して確かめた結果なので、変えるときは必ず繋いで確かめること。
-    const ws = new WebSocket(listenUrl(this.lang, model), ["bearer", token]);
+    const ws = new WebSocket(listenUrl(this.lang, model, this.phrases), ["bearer", token]);
     this.ws = ws;
 
     ws.onopen = () => {
@@ -336,7 +354,7 @@ class DeepgramRecognizer implements SpeechRecognizer {
       if (this.stopped) return;
 
       const model = issued.model || "nova-2";
-      this.streams = wanted.map((source) => new SourceStream(source, this.options.lang));
+      this.streams = wanted.map((source) => new SourceStream(source, this.options.lang, this.options.phrases ?? []));
       // 1本ずつ独立して立ち上げる。片方が失敗しても、もう片方は動かす。
       await Promise.all(this.streams.map((s) => s.start(issued.token, model, handlers)));
     })();
