@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
+import InterviewSettings from "../components/InterviewSettings";
 import { applyTheme, loadTheme, saveTheme, THEME_LABELS } from "../lib/theme";
 import type { ThemeChoice } from "../lib/theme";
 
@@ -42,6 +43,8 @@ export default function SettingsPage() {
           ))}
         </div>
       </section>
+
+      <InterviewSettings />
     </div>
   );
 }

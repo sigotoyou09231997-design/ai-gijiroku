@@ -1,0 +1,379 @@
+import Anthropic from "@anthropic-ai/sdk";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+
+/**
+ * 面接モード: 面接官の発言に対する回答のカンペを、流しながら作る。
+ * Vercel向けの入り口。netlify/functions/interview.ts に同じ中身を写してある
+ * （サーバー関数は netlify/functions/ と api/ に別々に置く決まり。片方から読み込むと本番で落ちる）。
+ * 「core:begin」から「core:end」までは両方で一字一句同じにする（テストで確かめている）。
+ *
+ * 2段で出す:
+ *   stage "quick" … 最速のモデル（Claude Haiku 5.5）で「結論」の1行だけ。
+ *   stage "full"  … 正確なモデル（Claude Opus 5.5 / Claude Fable 5.2）で「結論／具体例／つなげ」。
+ *   stage "warm"  … 面接の初めに、経歴などを先に読ませておく（プロンプトキャッシュを温めるだけ）。
+ *
+ * 経歴・会社の情報・想定問答は、リクエストのたびに画面から受け取る。ここには保存しない。
+ * 変わらない材料を前に置き、キャッシュが効く形にしてある。
+ *
+ * 環境変数（Vercel のプロジェクト設定）:
+ *   ANTHROPIC_API_KEY … 必須。未設定のときは 503 を返す。
+ */
+
+// ── core:begin ──────────────────────────────────────────
+
+const QUICK_MODEL = "claude-haiku-5-5";
+const FULL_MODELS = { opus: "claude-opus-5-5", fable: "claude-fable-5-2" } as const;
+type FullModelKey = keyof typeof FULL_MODELS;
+type Effort = "low" | "medium" | "high";
+type Stage = "quick" | "full" | "warm";
+
+/** 既定。評価（24問）の結果で決めた。 */
+const DEFAULT_FULL_MODEL: FullModelKey = "opus";
+const DEFAULT_EFFORT: Effort = "low";
+
+/** 材料1欄の上限（文字）。画面側の上限と揃える。 */
+const MATERIAL_LIMIT = 30_000;
+const CONTEXT_LIMIT = 10_000;
+const QUESTION_LIMIT = 4_000;
+
+const FACT_RULES = `# 使ってよい事実
+- 経験・実績・数字・件数・社名・期間・技術名・人数は、<本人の経歴> に書いてあるものだけを使います。書いていないことは、ありそうなことでも足しません（「〜したこともあります」「〜を勉強中です」のような作り足しも含みます）。
+- <想定問答> は本人が用意した答えです。近い質問なら土台にして、実際の聞かれ方に合わせて言い直します。
+- <今日の会社の情報> は、その会社でどう活かすかを言う所と、逆質問にだけ使います。書いていない会社の事情は決めつけません。空なら会社名を出さずに言います。
+- 考え方・姿勢を聞かれたとき（残業・苦手なこと・意見が割れたとき など）は、経歴の事実と食い違わない範囲で姿勢として答えます。架空の出来事を例にしません。
+- 経歴に無い経験・スキルを聞かれたら、作り話をせず「経験が無いことを正直に言う → 経歴の中の近い経験 → 学ぶ姿勢」の順で答え、@経歴外 の行を書きます。
+- 経歴に「聞かれない限り言わない」などの注意書きがあれば、それに従います。
+
+# 判断
+面接官の最新の発言が、本人に答えを求める質問や依頼（「〜を教えてください」「〜をお聞かせください」なども含む）かどうかを判断します。相づち・説明・感想・雑談・「では次に」のようなつなぎだけなら、@なし の1行だけを書いて終えます。
+文字起こしには聞き間違いが混ざります（例:「事故紹介」→自己紹介）。前後の会話と経歴から、聞かれていることを読み取ります。`;
+
+const QUICK_SYSTEM = `あなたは、オンライン面接を受けている本人（求職者）の横で、答えの書き出しを一番早く出す係です。面接官の最新の発言に対して、本人が最初に口に出す1文だけを書きます。
+
+${FACT_RULES}
+
+# 書き方
+話し言葉の丁寧語（です・ます）で、一人称は「私」。結論は40字以内の1文。
+
+# 出力の形（この形だけを書く。前置き・見出し・飾りは書かない）
+@想定 <土台にした想定問答の番号。無ければ 0>
+@経歴外   ← 経歴に無い経験を聞かれたときだけ書く
+結論：<最初に口に出す1文>`;
+
+const FULL_SYSTEM = `あなたは、オンライン面接を受けている本人（求職者）の横で、答え方のカンペを出す係です。面接官の最新の発言に対して、本人がそのまま声に出して読める答えを作ります。
+
+${FACT_RULES}
+
+# 書き方
+- 話し言葉の丁寧語（です・ます）で、面接でそのまま読める自然な文にします。一人称は「私」。
+- 結論は1文、具体例は1〜2文、つなげは1文。全体で150〜230字くらい。
+- 逆質問を求められたら、結論に「はい、〜について伺いたいです」、具体例に1つ目の質問、つなげに2つ目の質問を書きます。
+- 箇条書き・見出し・記号での強調は使いません。
+
+# 出力の形（この形だけを書く。前置きは書かない）
+@想定 <土台にした想定問答の番号。無ければ 0>
+@経歴外   ← 経歴に無い経験を聞かれたときだけ書く
+結論：<1文>
+具体例：<1〜2文>
+つなげ：<1文。その会社でどう活かすか（会社の情報が無ければ、入社後どう活かすか）>
+@質問 <面接官が聞いたことを短く整えた1文>`;
+
+interface InterviewInput {
+  stage: Stage;
+  profile: string;
+  company: string;
+  qa: string;
+  context: string;
+  question: string;
+  model: FullModelKey;
+  effort: Effort;
+  fast: boolean;
+}
+
+type ParseResult = { ok: true; input: InterviewInput } | { ok: false; status: number; message: string };
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseInterviewBody(raw: unknown): ParseResult {
+  const body = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const stage = body.stage;
+  if (stage !== "quick" && stage !== "full" && stage !== "warm") {
+    return { ok: false, status: 400, message: "stage は quick / full / warm のどれかにしてください。" };
+  }
+  const input: InterviewInput = {
+    stage,
+    profile: text(body.profile),
+    company: text(body.company),
+    qa: text(body.qa),
+    context: text(body.context),
+    question: text(body.question),
+    model: body.model === "fable" ? "fable" : body.model === "opus" ? "opus" : DEFAULT_FULL_MODEL,
+    effort: body.effort === "low" || body.effort === "medium" || body.effort === "high" ? body.effort : DEFAULT_EFFORT,
+    fast: body.fast === true,
+  };
+  for (const [name, value] of [
+    ["経歴", input.profile],
+    ["会社の情報", input.company],
+    ["想定問答", input.qa],
+  ] as const) {
+    if (value.length > MATERIAL_LIMIT) {
+      return { ok: false, status: 413, message: `${name}が長すぎます（${MATERIAL_LIMIT.toLocaleString()}字まで）。` };
+    }
+  }
+  if (input.context.length > CONTEXT_LIMIT || input.question.length > QUESTION_LIMIT) {
+    return { ok: false, status: 413, message: "会話が長すぎます。" };
+  }
+  if (stage !== "warm" && !input.question) {
+    return { ok: false, status: 400, message: "面接官の発言が空です。" };
+  }
+  return { ok: true, input };
+}
+
+/** 変わらない材料。キャッシュの区切りをこの後ろに置く。 */
+function materialsText(input: InterviewInput): string {
+  return [
+    "<本人の経歴>",
+    input.profile || "（未入力）",
+    "</本人の経歴>",
+    "",
+    "<今日の会社の情報>",
+    input.company || "（未入力）",
+    "</今日の会社の情報>",
+    "",
+    "<想定問答>",
+    input.qa || "（未入力）",
+    "</想定問答>",
+  ].join("\n");
+}
+
+function buildSystem(stage: "quick" | "full", input: InterviewInput): Anthropic.TextBlockParam[] {
+  return [
+    { type: "text", text: stage === "quick" ? QUICK_SYSTEM : FULL_SYSTEM },
+    { type: "text", text: materialsText(input), cache_control: { type: "ephemeral" } },
+  ];
+}
+
+function buildUserText(input: InterviewInput): string {
+  return [
+    "<直近の会話>（古い順。[相手]＝面接官、[自分]＝本人）",
+    input.context || "（まだありません）",
+    "</直近の会話>",
+    "",
+    "<面接官の最新の発言>",
+    input.question,
+    "</面接官の最新の発言>",
+  ].join("\n");
+}
+
+type Emit = (event: Record<string, unknown>) => void;
+
+interface ErrorInfo {
+  status: number;
+  message: string;
+  /** 直せるのが本人だけ（キー・残高）。 */
+  owner: boolean;
+}
+
+function describeError(error: unknown): ErrorInfo {
+  if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
+    return { status: 503, owner: true, message: "AIのAPIキーが使えません。Vercel の ANTHROPIC_API_KEY を確認してください。" };
+  }
+  if (error instanceof Anthropic.BadRequestError && /credit balance/i.test(error.message)) {
+    return {
+      status: 402,
+      owner: true,
+      message: "AIの利用残高が足りません。Anthropic の Billing（console.anthropic.com）を確認してください。",
+    };
+  }
+  if (error instanceof Anthropic.RateLimitError) {
+    return { status: 429, owner: false, message: "AIが混み合っています。少しおいて、もう一度試してください。" };
+  }
+  if (error instanceof Anthropic.APIError) {
+    return { status: 502, owner: false, message: `AIの呼び出しに失敗しました（HTTP ${error.status ?? "?"}）。` };
+  }
+  if (error instanceof Anthropic.APIConnectionError) {
+    return { status: 502, owner: false, message: "AIに接続できませんでした。" };
+  }
+  return { status: 500, owner: false, message: error instanceof Error ? error.message : "回答を作れませんでした。" };
+}
+
+const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+
+/** 1本ぶんの回答を流す。届いた文字は emit({t:"d"}) で、終わりは emit({t:"done"}) で知らせる。 */
+async function runInterview(client: Anthropic, input: InterviewInput, emit: Emit, signal: AbortSignal): Promise<void> {
+  const started = Date.now();
+  let firstAt = 0;
+  const system = buildSystem(input.stage === "quick" ? "quick" : "full", input);
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: buildUserText(input) }];
+
+  const onText = (delta: string) => {
+    if (!delta) return;
+    if (!firstAt) firstAt = Date.now();
+    emit({ t: "d", v: delta });
+  };
+
+  let final: { model: string; stop_reason: string | null; usage: Anthropic.Usage | Anthropic.Beta.BetaUsage };
+  if (input.stage === "quick") {
+    // Haiku 5.5 は effort が high 以下なら考える段階を省ける。最初の1文を一番早く出すため省く。
+    const stream = client.messages.stream(
+      {
+        model: QUICK_MODEL,
+        max_tokens: 400,
+        thinking: { type: "disabled" },
+        output_config: { effort: "low" },
+        system,
+        messages,
+      },
+      { signal },
+    );
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") onText(event.delta.text);
+    }
+    final = await stream.finalMessage();
+  } else {
+    // Opus 5.5 / Fable 5.2 は考える段階を止められない（effort で深さを決める）。
+    // 安全の判定で断られたときに備え、サーバー側の代わりのモデルを付けておく。
+    const stream = client.beta.messages.stream(
+      {
+        model: FULL_MODELS[input.model],
+        max_tokens: 8_000,
+        output_config: { effort: input.effort },
+        betas: [FALLBACK_BETA],
+        fallbacks: "default",
+        ...(input.fast ? { speed: "fast" as const } : {}),
+        system,
+        messages,
+      },
+      { signal },
+    );
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") onText(event.delta.text);
+    }
+    final = await stream.finalMessage();
+  }
+
+  if (final.stop_reason === "refusal") {
+    emit({ t: "error", message: "この発言には回答案を作れませんでした（AIの安全の判定）。", owner: false });
+    return;
+  }
+  emit({
+    t: "done",
+    model: final.model,
+    stopReason: final.stop_reason,
+    usage: {
+      input_tokens: final.usage.input_tokens,
+      output_tokens: final.usage.output_tokens,
+      cache_read_input_tokens: final.usage.cache_read_input_tokens ?? 0,
+      cache_creation_input_tokens: final.usage.cache_creation_input_tokens ?? 0,
+    },
+    serverFirstMs: firstAt ? firstAt - started : null,
+    serverTotalMs: Date.now() - started,
+  });
+}
+
+/**
+ * 面接の初めに、材料を2つのモデルに先に読ませておく（max_tokens: 0 で答えは作らせない）。
+ * 本番の呼び出しと同じ設定（考える深さ・速さ）にしないとキャッシュが当たらない。
+ */
+async function warmInterview(client: Anthropic, input: InterviewInput): Promise<Record<string, unknown>> {
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: "（準備）" }];
+  const started = Date.now();
+  const [quick, full] = await Promise.allSettled([
+    client.messages.create({
+      model: QUICK_MODEL,
+      max_tokens: 0,
+      thinking: { type: "disabled" },
+      output_config: { effort: "low" },
+      system: buildSystem("quick", input),
+      messages,
+    }),
+    client.beta.messages.create({
+      model: FULL_MODELS[input.model],
+      max_tokens: 0,
+      output_config: { effort: input.effort },
+      betas: [FALLBACK_BETA],
+      fallbacks: "default",
+      ...(input.fast ? { speed: "fast" as const } : {}),
+      system: buildSystem("full", input),
+      messages,
+    }),
+  ]);
+  const usageOf = (result: PromiseSettledResult<{ usage: Anthropic.Usage | Anthropic.Beta.BetaUsage }>) =>
+    result.status === "fulfilled"
+      ? {
+          cache_creation_input_tokens: result.value.usage.cache_creation_input_tokens ?? 0,
+          cache_read_input_tokens: result.value.usage.cache_read_input_tokens ?? 0,
+          input_tokens: result.value.usage.input_tokens,
+        }
+      : { error: describeError(result.reason).message };
+  return { t: "warm", quick: usageOf(quick), full: usageOf(full), ms: Date.now() - started };
+}
+
+// ── core:end ────────────────────────────────────────────
+
+let client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!client) client = new Anthropic({ timeout: 60_000 });
+  return client;
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+  if (req.method !== "POST") {
+    res.status(405).send("POST してください。");
+    return;
+  }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(503).send("AIのAPIキー（ANTHROPIC_API_KEY）が未設定です。Vercelの環境変数に設定してください。");
+    return;
+  }
+
+  const parsed = parseInterviewBody(req.body);
+  if (!parsed.ok) {
+    res.status(parsed.status).send(parsed.message);
+    return;
+  }
+  const input = parsed.input;
+
+  if (input.stage === "warm") {
+    try {
+      res.setHeader("cache-control", "no-store");
+      res.status(200).json(await warmInterview(getClient(), input));
+    } catch (error) {
+      const info = describeError(error);
+      res.status(info.status).send(info.message);
+    }
+    return;
+  }
+
+  // 画面が新しい質問で前の回答を止めたら（接続を切ったら）、AI への依頼も止める。
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
+  res.status(200);
+  res.setHeader("content-type", "application/x-ndjson; charset=utf-8");
+  res.setHeader("cache-control", "no-store, no-transform");
+  res.setHeader("x-accel-buffering", "no");
+  res.flushHeaders?.();
+
+  const emit: Emit = (event) => {
+    if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`);
+  };
+
+  try {
+    await runInterview(getClient(), input, emit, controller.signal);
+  } catch (error) {
+    if (!(error instanceof Anthropic.APIUserAbortError) && !controller.signal.aborted) {
+      const info = describeError(error);
+      emit({ t: "error", message: info.message, owner: info.owner });
+    }
+  } finally {
+    if (!res.writableEnded) res.end();
+  }
+}
+
+/** テスト用。 */
+export const __test = { parseInterviewBody, buildSystem, buildUserText, describeError, runInterview, warmInterview };

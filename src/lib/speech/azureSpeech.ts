@@ -123,6 +123,8 @@ class SourceRecognition {
     private readonly lang: string,
     /** 合鍵を取り直す。つなぎ直しのときに使う。 */
     private readonly renewToken: () => Promise<string>,
+    /** よく出る言葉（phrase list）。つなぎ直すたびに付け直す。 */
+    private readonly phrases: string[] = [],
   ) {}
 
   private get who(): string {
@@ -191,6 +193,10 @@ class SourceRecognition {
     const audio = SDK.AudioConfig.fromStreamInput(this.stream);
     const recognizer = new SDK.SpeechRecognizer(config, audio);
     this.recognizer = recognizer;
+    // 社名・人名・技術用語を先に教えておく（ja-JP でも使える。認識を始める前に付ける）。
+    if (this.phrases.length > 0) {
+      SDK.PhraseListGrammar.fromRecognizer(recognizer).addPhrases(this.phrases);
+    }
 
     const emit = (text: string, isFinal: boolean) => {
       const trimmed = text.trim();
@@ -378,7 +384,8 @@ class AzureRecognizer implements SpeechRecognizer {
       if (this.stopped) return;
 
       const renewToken = async () => (await fetchToken()).token;
-      this.sources = wanted.map((source) => new SourceRecognition(source, this.options.lang, renewToken));
+      const phrases = this.options.phrases ?? [];
+      this.sources = wanted.map((source) => new SourceRecognition(source, this.options.lang, renewToken, phrases));
       // 1本ずつ独立して立ち上げる。片方が失敗しても、もう片方は動かす。
       await Promise.all(this.sources.map((s) => s.start(issued.token, issued.region, handlers)));
 

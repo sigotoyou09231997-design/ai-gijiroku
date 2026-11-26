@@ -1,9 +1,21 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, CheckCircle2, ChevronDown, ListChecks, ListOrdered, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  Download,
+  ListChecks,
+  ListOrdered,
+  Loader2,
+  MessageSquareText,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import ChatGptLink from "../components/ChatGptLink";
 import { deleteSession, loadSession } from "../lib/db";
+import { downloadMarkdown, questionsToMarkdown } from "../lib/interview/exportQuestions";
 import { formatDateTime, formatDuration, formatTime } from "../lib/format";
 import { generateSummary } from "../lib/sessionSummary";
 import { speakerLabel } from "../lib/types";
@@ -191,6 +203,45 @@ export default function SessionDetailPage() {
           )}
         </div>
       </section>
+
+      {session.interviewQuestions && session.interviewQuestions.length > 0 && (
+        <section className="rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <div className="flex flex-wrap items-center gap-2">
+            <MessageSquareText size={15} className="text-self" aria-hidden />
+            <h2 className="text-sm font-bold text-ink">面接で聞かれた質問（{session.interviewQuestions.length}件）</h2>
+            <div className="grow" />
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs text-muted hover:text-ink"
+              onClick={() => {
+                const title = `面接で聞かれた質問_${new Date(session.startedAt).toLocaleDateString("sv-SE")}`;
+                downloadMarkdown(`${title}.md`, questionsToMarkdown(session.interviewQuestions ?? [], title));
+              }}
+            >
+              <Download size={12} aria-hidden />
+              想定問答の形で書き出す（.md）
+            </button>
+          </div>
+          <ol className="mt-3 space-y-1.5">
+            {session.interviewQuestions.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-baseline gap-2 rounded-xl bg-raised px-3.5 py-2.5">
+                <span className="font-mono text-[11px] tabular-nums text-faint">{formatTime(item.at)}</span>
+                <span className="text-[15px] text-ink">{item.question}</span>
+                {item.qaRef ? (
+                  <span className="rounded-full bg-other-soft px-2 py-0.5 text-[11px] font-bold text-other">
+                    想定問答 {item.qaRef}
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">想定外</span>
+                )}
+                {item.noExperience && (
+                  <span className="rounded-full bg-live/12 px-2 py-0.5 text-[11px] font-bold text-live">経歴に無い</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <button
         type="button"

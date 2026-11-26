@@ -18,7 +18,10 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import ChatGptLink from "../components/ChatGptLink";
-import { SESSION_LABELS, useLiveSession } from "../hooks/useLiveSession";
+import InterviewPanel from "../components/InterviewPanel";
+import { useInterviewAssist } from "../hooks/useInterviewAssist";
+import { SESSION_LABELS, useLiveSession, type LiveSessionHooks } from "../hooks/useLiveSession";
+import { isInterviewLabel } from "../lib/interview/settings";
 import { formatTime } from "../lib/format";
 import { AUTO } from "../lib/speech/devices";
 import type { OtherSourceMode } from "../lib/speech/devices";
@@ -60,7 +63,23 @@ function speakerTone(speaker: Speaker | undefined): { text: string; varName: str
 
 export default function RecordPage() {
   const navigate = useNavigate();
-  const live = useLiveSession();
+  // 面接モードとのつなぎ。録音側は呼ぶ時点の中身を読むので、描画のたびに入れ替えてよい。
+  const hooksRef = useRef<LiveSessionHooks>({});
+  const live = useLiveSession(hooksRef);
+  const interviewMode = isInterviewLabel(live.label);
+  const assist = useInterviewAssist(interviewMode);
+  hooksRef.current = {
+    interviewMode,
+    phrases: assist.phrases,
+    onFinal: assist.handleFinal,
+    onInterim: assist.handleInterim,
+    onStart: () => {
+      assist.reset();
+      assist.prewarm();
+    },
+    interviewRecords: assist.records,
+  };
+  const exportTitle = `面接で聞かれた質問_${new Date().toLocaleDateString("sv-SE")}`;
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -402,8 +421,11 @@ export default function RecordPage() {
         </section>
       )}
 
+      {/* ── 面接モード：最新の質問と回答をいちばん上に ─────── */}
+      {interviewMode && <InterviewPanel assist={assist} recording={recording} title={exportTitle} />}
+
       {/* ── 本体：カンペが主役、文字起こしは脇の柱 ─────── */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <div className={interviewMode ? "grid gap-4" : "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]"}>
         {/* 文字起こし（脇の柱） */}
         <section className="flex flex-col overflow-hidden rounded-3xl border border-line bg-surface">
           <div className="flex items-center justify-between border-b border-line px-6 py-4">
@@ -413,7 +435,10 @@ export default function RecordPage() {
             )}
           </div>
 
-          <div ref={transcriptRef} className="h-[34rem] overflow-y-auto px-6 py-4">
+          <div
+            ref={transcriptRef}
+            className={`${interviewMode ? "h-[18rem]" : "h-[34rem]"} overflow-y-auto px-6 py-4`}
+          >
             {segments.length === 0 && interimEntries.length === 0 && (
               <p className="pt-24 text-center text-[15px] leading-[1.9] text-faint">
                 話した内容が、誰の声かの札つきで
@@ -452,7 +477,8 @@ export default function RecordPage() {
           </div>
         </section>
 
-        {/* カンペ（主役） */}
+        {/* カンペ（主役）。面接モードでは上の「面接の回答」が出すので、重ねて出さない。 */}
+        {!interviewMode && (
         <section className="flex flex-col overflow-hidden rounded-3xl border border-self/25 bg-surface shadow-lift">
           <div className="flex items-center gap-2.5 border-b border-line px-6 py-4">
             <MessageCircleQuestion size={17} className="text-self" aria-hidden />
@@ -530,6 +556,7 @@ export default function RecordPage() {
             )}
           </div>
         </section>
+        )}
       </div>
 
       {/* ── 決定事項・宿題事項（下に一列） ───────────────── */}

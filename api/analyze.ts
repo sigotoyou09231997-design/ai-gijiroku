@@ -161,6 +161,8 @@ interface AnalyzeBody {
   context?: unknown;
   recent?: unknown;
   label?: unknown;
+  /** 面接モードでは質問と回答案を別の仕組み（/api/interview）で出すので、ここでは拾わない。 */
+  skipQuestions?: unknown;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -173,6 +175,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   const recent = typeof body.recent === "string" ? body.recent.trim() : "";
   const context = typeof body.context === "string" ? body.context : "";
   const label = typeof body.label === "string" && body.label ? body.label : "打ち合わせ";
+  const skipQuestions = body.skipQuestions === true;
 
   if (!recent) {
     res.status(200).json({ questions: [], actions: [], terms: [] });
@@ -187,12 +190,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     "",
     "【今回あらたに増えたぶん（ここから拾う）】",
     recent,
+    ...(skipQuestions
+      ? ["", "※この場面では、質問と回答案は別の仕組みで出しています。questions は常に空の配列にしてください。"]
+      : []),
   ].join("\n");
 
   try {
     const result = await callClaude(SYSTEM, userText, TOOL);
     res.status(200).json({
-      questions: Array.isArray(result.questions) ? result.questions : [],
+      questions: !skipQuestions && Array.isArray(result.questions) ? result.questions : [],
       actions: Array.isArray(result.actions) ? result.actions : [],
       terms: Array.isArray(result.terms) ? result.terms : [],
     });

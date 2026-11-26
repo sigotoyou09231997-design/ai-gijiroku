@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { AiNotConfiguredError, analyzeTranscript } from "../lib/ai/client";
 import { contextWindow, shouldAnalyze } from "../lib/analysis/schedule";
 import { mergeActions, mergeQuestions, mergeTerms } from "../lib/analysis/merge";
@@ -21,7 +21,14 @@ import { captureDisplayAudio, isDisplayAudioSupported } from "../lib/speech/disp
 import { getSpeechProvider, resolveSpeechProvider } from "../lib/speech";
 import type { Speaker, SpeechProvider, SpeechRecognizer, SpeechSource } from "../lib/speech";
 import { speakerLabel } from "../lib/types";
-import type { ActionItem, DetectedQuestion, DetectedTerm, MeetingSession, TranscriptSegment } from "../lib/types";
+import type {
+  ActionItem,
+  DetectedQuestion,
+  DetectedTerm,
+  InterviewQuestionRecord,
+  MeetingSession,
+  TranscriptSegment,
+} from "../lib/types";
 
 export const SESSION_LABELS = ["打ち合わせ", "面接", "議事録"];
 
@@ -29,6 +36,25 @@ export const SESSION_LABELS = ["打ち合わせ", "面接", "議事録"];
 const TICK_MS = 2_000;
 
 export type LiveStatus = "idle" | "recording" | "finishing";
+
+/**
+ * 面接モード（useInterviewAssist）とのつなぎ。録音側はここを呼ぶだけで、面接モードの中身は知らない。
+ * 毎回の描画で入れ替わるので、ref で受け取って呼ぶ時点の最新を使う。
+ */
+export interface LiveSessionHooks {
+  /** 面接モードか。true のときは analyze に質問と回答案を拾わせない（重複して出さないため）。 */
+  interviewMode?: boolean;
+  /** 録音を始めるときに音声認識へ渡す「よく出る言葉」（面接モードのときだけ使う）。 */
+  phrases?: string[];
+  /** 確定した発言。 */
+  onFinal?(speaker: Speaker, text: string): void;
+  /** いま喋っている途中のぶん（空文字は「途切れた」）。 */
+  onInterim?(speaker: Speaker, text: string): void;
+  /** 録音を始めた。 */
+  onStart?(): void;
+  /** 保存するときに、聞かれた質問の一覧をもらう。 */
+  interviewRecords?(): InterviewQuestionRecord[];
+}
 
 /** いま喋っている途中のぶん。話者ごとに別々に出す（同時に喋ることがあるため）。 */
 export type InterimBySpeaker = Partial<Record<Speaker, string>>;
@@ -81,7 +107,8 @@ function labeledLine(text: string, speaker: Speaker): string {
   return label ? `[${label}] ${text}` : text;
 }
 
-export function useLiveSession(): LiveSession {
+export function useLiveSession(hooksRef?: MutableRefObject<LiveSessionHooks>): LiveSession {
+  const hooks = (): LiveSessionHooks => hooksRef?.current ?? {};
   // 起動直後はブラウザ標準。Azure が使える設定ならすぐ差し替わる。
   const [provider, setProvider] = useState<SpeechProvider>(() => getSpeechProvider());
   const providerInfo = useMemo(() => provider.info(), [provider]);
@@ -223,9 +250,14 @@ export function useLiveSession(): LiveSession {
       lastSentAtRef.current = now;
       setAnalyzing(true);
 
+      const interviewMode = Boolean(hooks().interviewMode);
       try {
-        const result = await analyzeTranscript({ context, recent, label: labelRef.current }, Date.now());
-        const mergedQuestions = mergeQuestions(questionsRef.current, result.questions);
+        const result = await analyzeTranscript(
+          { context, recent, label: labelRef.current, skipQuestions: interviewMode },
+          Date.now(),
+        );
+        // 面接モードでは、質問と回答案は面接モードの欄が出す。ここでは足さない。
+        const mergedQuestions = mergeQuestions(questionsRef.current, interviewMode ? [] : result.questions);
         const mergedActions = mergeActions(actionsRef.current, result.actions);
         const mergedTerms = mergeTerms(termsRef.current, result.terms);
         if (mergedQuestions.added.length > 0) {
@@ -296,17 +328,25 @@ export function useLiveSession(): LiveSession {
     setAiError(null);
     setAnalyzing(false);
 
-    const recognizer = provider.create({ lang: "ja-JP", sources });
+    const bridge = hooks();
+    const phrases = bridge.interviewMode && bridge.phrases && bridge.phrases.length > 0 ? bridge.phrases : undefined;
+    bridge.onStart?.();
+    const recognizer = provider.create({ lang: "ja-JP", sources, phrases });
     recognizerRef.current = recognizer;
     recognizer.start({
       onChunk: ({ text, isFinal, speaker }) => {
         if (!isFinal) {
           setInterim((current) => ({ ...current, [speaker]: text }));
+          hooks().onInterim?.(speaker, text);
           return;
         }
         setInterim((current) => ({ ...current, [speaker]: "" }));
         const trimmed = text.trim();
-        if (!trimmed) return;
+        if (!trimmed) {
+          hooks().onInterim?.(speaker, "");
+          return;
+        }
+        hooks().onFinal?.(speaker, trimmed);
         const line = labeledLine(trimmed, speaker);
         pendingRef.current = pendingRef.current ? `${pendingRef.current}\n${line}` : line;
         const segment: TranscriptSegment = { id: newId(), text: trimmed, at: Date.now(), speaker };
@@ -395,6 +435,8 @@ export function useLiveSession(): LiveSession {
       return null;
     }
 
+    const bridge = hooks();
+    const interviewQuestions = bridge.interviewMode ? (bridge.interviewRecords?.() ?? []) : [];
     const session: MeetingSession = {
       id: sessionId,
       label: labelRef.current,
@@ -404,6 +446,7 @@ export function useLiveSession(): LiveSession {
       questions: questionsRef.current,
       actions: actionsRef.current,
       terms: termsRef.current,
+      ...(interviewQuestions.length > 0 ? { interviewQuestions } : {}),
     };
     await saveSession(session);
 
