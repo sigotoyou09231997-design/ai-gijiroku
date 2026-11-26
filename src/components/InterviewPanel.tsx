@@ -154,6 +154,12 @@ export default function InterviewPanel({ assist, recording, title }: InterviewPa
   const [copied, setCopied] = useState(false);
   const visible = assist.cards.filter((card) => card.visible);
   const [latest, ...older] = visible;
+  // 新しい発言を確かめている最中（まだ質問かどうか分からない）。前の答えの上に小さく知らせる。
+  const head = assist.cards[0];
+  const checking =
+    head !== undefined &&
+    !head.visible &&
+    (head.quick.status === "streaming" || head.full.status === "streaming");
   const ready = {
     profile: assist.materials.profile.length > 0,
     company: assist.materials.company.length > 0,
@@ -235,6 +241,12 @@ export default function InterviewPanel({ assist, recording, title }: InterviewPa
       )}
 
       <div className="px-5 py-4">
+        {checking && (
+          <p className="mb-3 flex items-center gap-2 text-xs text-muted" role="status">
+            <Loader2 size={12} className="animate-spin" aria-hidden />
+            面接官の発言を確かめています…
+          </p>
+        )}
         {latest ? (
           <article key={latest.id} className="enter" aria-live="polite">
             <div className="flex items-baseline gap-2">

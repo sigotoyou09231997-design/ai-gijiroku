@@ -92,8 +92,8 @@ function emptyStage(): StageView {
 }
 
 export function viewCard(card: InterviewCard, pairs: QaPair[]): CardView {
-  const quickParsed = parseAnswer(card.quick.text);
-  const fullParsed = parseAnswer(card.full.text);
+  const quickParsed = parseAnswer(card.quick.text, card.quick.status === "done");
+  const fullParsed = parseAnswer(card.full.text, card.full.status === "done");
   const fullHasContent = fullParsed.lines.length > 0;
   const quickHasContent = !quickParsed.skip && quickParsed.lines.length > 0;
   // 2段目（正確な方）が「質問ではない」と言ったら、1段目や手元の照合より優先して出さない。

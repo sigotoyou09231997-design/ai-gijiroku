@@ -23,10 +23,11 @@ export interface InterviewPrefs {
 }
 
 /**
- * 既定の2段目。評価（24問）で、経歴への忠実さと答えになっている率が最も高く、
- * 全文が出るまでが実用的だったものにしてある。
+ * 既定の2段目。評価（24問）で Opus 5.5 / Fable 5.2 × low / medium の4通りを比べ、
+ * 経歴への忠実さ・答えになっている率はどれも同じだったので、全文が一番速く出た Fable 5.2 の low にした。
+ * サーバー側の既定（api/interview.ts）と揃える。
  */
-export const DEFAULT_PREFS: InterviewPrefs = { fullModel: "opus", effort: "low" };
+export const DEFAULT_PREFS: InterviewPrefs = { fullModel: "fable", effort: "low" };
 
 export const FULL_MODEL_LABELS: Record<FullModelChoice, string> = {
   opus: "Claude Opus 5.5",
