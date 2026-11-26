@@ -215,6 +215,22 @@ export default function InterviewSettings() {
           </div>
         </div>
       </div>
+
+      <label className="mt-4 flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          className="mt-1 h-4 w-4 accent-[rgb(var(--self))]"
+          checked={prefs.fast}
+          disabled={prefs.fullModel !== "fable"}
+          onChange={(event) => updatePrefs({ ...prefs, fast: event.target.checked })}
+        />
+        <span>
+          <span className="font-bold">速いモード</span>
+          <span className="ml-1 text-xs text-muted">
+            （Fable 5.2 だけ。同じモデルのまま出るのが約2倍速く、料金は2倍。1問あたり約4円）
+          </span>
+        </span>
+      </label>
     </section>
   );
 }

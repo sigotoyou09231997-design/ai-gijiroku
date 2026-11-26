@@ -35,6 +35,11 @@ describe("面接モードの設定", () => {
     render(<InterviewSettings />);
     fireEvent.click(screen.getByRole("button", { name: "Claude Fable 5.2" }));
     fireEvent.click(screen.getByRole("button", { name: "標準（medium）" }));
-    expect(loadPrefs()).toEqual({ fullModel: "fable", effort: "medium" });
+    expect(loadPrefs()).toEqual({ fullModel: "fable", effort: "medium", fast: true });
+    fireEvent.click(screen.getByRole("checkbox", { name: /速いモード/ }));
+    expect(loadPrefs().fast).toBe(false);
+    // Opus 5.5 では速いモードは選べない（試していない組み合わせのため）。
+    fireEvent.click(screen.getByRole("button", { name: "Claude Opus 5.5" }));
+    expect((screen.getByRole("checkbox", { name: /速いモード/ }) as HTMLInputElement).disabled).toBe(true);
   });
 });

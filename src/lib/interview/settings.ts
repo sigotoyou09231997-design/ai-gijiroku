@@ -20,6 +20,8 @@ export interface InterviewPrefs {
   fullModel: FullModelChoice;
   /** 2段目の考える深さ。 */
   effort: EffortChoice;
+  /** 速いモード（Fable 5.2 だけ。料金は2倍）。 */
+  fast: boolean;
 }
 
 /**
@@ -27,7 +29,7 @@ export interface InterviewPrefs {
  * 経歴への忠実さ・答えになっている率はどれも同じだったので、全文が一番速く出た Fable 5.2 の low にした。
  * サーバー側の既定（api/interview.ts）と揃える。
  */
-export const DEFAULT_PREFS: InterviewPrefs = { fullModel: "fable", effort: "low" };
+export const DEFAULT_PREFS: InterviewPrefs = { fullModel: "fable", effort: "low", fast: true };
 
 export const FULL_MODEL_LABELS: Record<FullModelChoice, string> = {
   opus: "Claude Opus 5.5",
@@ -93,6 +95,7 @@ export function loadPrefs(): InterviewPrefs {
     return {
       fullModel: isFullModel(parsed.fullModel) ? parsed.fullModel : DEFAULT_PREFS.fullModel,
       effort: isEffort(parsed.effort) ? parsed.effort : DEFAULT_PREFS.effort,
+      fast: typeof parsed.fast === "boolean" ? parsed.fast : DEFAULT_PREFS.fast,
     };
   } catch {
     return { ...DEFAULT_PREFS };

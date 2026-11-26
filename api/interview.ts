@@ -33,6 +33,11 @@ type Stage = "quick" | "full" | "warm";
  */
 const DEFAULT_FULL_MODEL: FullModelKey = "fable";
 const DEFAULT_EFFORT: Effort = "low";
+/**
+ * Fable 5.2 の速いモード（同じモデルで出力が速い・料金は2倍）。評価で、全文が出るまでの中央が 2.9 → 1.5 秒、
+ * 一番遅かった質問が 9.6 → 4.8 秒になったので既定で使う。Opus 5.5 との組み合わせは試していないので Fable だけに付ける。
+ */
+const DEFAULT_FAST = true;
 
 /** 材料1欄の上限（文字）。画面側の上限と揃える。 */
 const MATERIAL_LIMIT = 30_000;
@@ -120,7 +125,7 @@ function parseInterviewBody(raw: unknown): ParseResult {
     question: text(body.question),
     model: body.model === "fable" ? "fable" : body.model === "opus" ? "opus" : DEFAULT_FULL_MODEL,
     effort: body.effort === "low" || body.effort === "medium" || body.effort === "high" ? body.effort : DEFAULT_EFFORT,
-    fast: body.fast === true,
+    fast: typeof body.fast === "boolean" ? body.fast : DEFAULT_FAST,
   };
   for (const [name, value] of [
     ["経歴", input.profile],
@@ -210,6 +215,11 @@ function describeError(error: unknown): ErrorInfo {
 
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
+/** 速いモードを使うか（Fable 5.2 だけ）。 */
+function useFast(input: InterviewInput): boolean {
+  return input.fast && input.model === "fable";
+}
+
 /** 1本ぶんの回答を流す。届いた文字は emit({t:"d"}) で、終わりは emit({t:"done"}) で知らせる。 */
 async function runInterview(client: Anthropic, input: InterviewInput, emit: Emit, signal: AbortSignal): Promise<void> {
   const started = Date.now();
@@ -245,21 +255,33 @@ async function runInterview(client: Anthropic, input: InterviewInput, emit: Emit
   } else {
     // Opus 5.5 / Fable 5.2 は考える段階を止められない（effort で深さを決める）。
     // 安全の判定で断られたときに備え、サーバー側の代わりのモデルを付けておく。
-    const stream = client.beta.messages.stream(
-      {
-        model: FULL_MODELS[input.model],
-        max_tokens: 8_000,
-        output_config: { effort: input.effort },
-        betas: [FALLBACK_BETA],
-        fallbacks: "default",
-        ...(input.fast ? { speed: "fast" as const } : {}),
-        system,
-        messages,
-      },
-      { signal },
-    );
-    for await (const event of stream) {
-      if (event.type === "content_block_delta" && event.delta.type === "text_delta") onText(event.delta.text);
+    const streamFull = (fast: boolean) =>
+      client.beta.messages.stream(
+        {
+          model: FULL_MODELS[input.model],
+          max_tokens: 8_000,
+          output_config: { effort: input.effort },
+          betas: [FALLBACK_BETA],
+          fallbacks: "default",
+          ...(fast ? { speed: "fast" as const } : {}),
+          system,
+          messages,
+        },
+        // 速いモードで上限に当たったら、待って再送するより普通の速さに切り替える方が早い。
+        { signal, ...(fast ? { maxRetries: 0 } : {}) },
+      );
+    let stream = streamFull(useFast(input));
+    try {
+      for await (const event of stream) {
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") onText(event.delta.text);
+      }
+    } catch (error) {
+      // 速いモードには別の利用上限がある。上限に当たったら、まだ何も出していなければ普通の速さで出し直す。
+      if (!(useFast(input) && error instanceof Anthropic.RateLimitError && !firstAt)) throw error;
+      stream = streamFull(false);
+      for await (const event of stream) {
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") onText(event.delta.text);
+      }
     }
     final = await stream.finalMessage();
   }
@@ -305,7 +327,7 @@ async function warmInterview(client: Anthropic, input: InterviewInput): Promise<
       output_config: { effort: input.effort },
       betas: [FALLBACK_BETA],
       fallbacks: "default",
-      ...(input.fast ? { speed: "fast" as const } : {}),
+      ...(useFast(input) ? { speed: "fast" as const } : {}),
       system: buildSystem("full", input),
       messages,
     }),
