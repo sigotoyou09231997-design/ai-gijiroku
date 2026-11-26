@@ -60,15 +60,16 @@ function parseContentLine(raw: string): AnswerLine | null {
 function applyMeta(raw: string, result: ParsedAnswer): void {
   const line = raw.trim().replace(/^＠/, "@");
   const body = line.slice(1).trim();
-  if (/^なし/.test(body)) {
+  // 印は行まるごとで読む（「@経歴外 — いいえ…」のような書き崩しを印と取り違えないため）。
+  if (/^なし[\s　。]*$/.test(body)) {
     result.skip = true;
     return;
   }
-  if (/^経歴外/.test(body)) {
+  if (/^経歴外[\s　。]*$/.test(body)) {
     result.noExperience = true;
     return;
   }
-  const ref = body.match(/^想定[\s　]*[QＱ]?[\s　]*([0-9０-９]+)/);
+  const ref = body.match(/^想定[\s　]*[QＱ]?[\s　]*([0-9０-９]+)[\s　]*$/);
   if (ref) {
     const n = Number(ref[1].normalize("NFKC"));
     if (Number.isFinite(n) && n > 0) result.qaRef = n;
