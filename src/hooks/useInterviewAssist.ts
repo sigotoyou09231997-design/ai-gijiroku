@@ -334,6 +334,8 @@ export function useInterviewAssist(enabled: boolean): InterviewAssist {
         handleFinal("self", trimmed);
         return;
       }
+      // 打ち込みは1回ごとに別の質問（音声と違い、続けて送っても言い足しではない）。
+      trackerRef.current.newTurn();
       handleFinal("other", trimmed);
       // 打ち込みは言い終えているので、待たずに回す。
       const request = trackerRef.current.force();
