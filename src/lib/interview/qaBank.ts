@@ -129,6 +129,34 @@ const FILLERS = [
   "ご自身",
   "について",
   "に関して",
+  // 「〜の経験はありますか」のような聞き方の枠。枠が同じだけで当たらないように落とす。
+  "のご経験",
+  "ご経験",
+  "の経験",
+  "経験",
+  "ってありますか",
+  "はありますか",
+  "ありますか",
+  "あります",
+  "と思いますか",
+  "思いますか",
+  "されていましたか",
+  "されていますか",
+  "されていた",
+  "されて",
+  "でしたか",
+  "ましたか",
+  "んですけど",
+  "ですけど",
+  "んですか",
+  "でしょう",
+  "もらえますか",
+  "いただけ",
+  "おいくら",
+  "くらい",
+  "というか",
+  "とか",
+  "って",
   // 疑問の言い方。「強みは何ですか」と「強みを教えて」を同じに扱うため。
   "はなんですか",
   "は何ですか",
@@ -149,8 +177,28 @@ const FILLERS = [
   "ます",
 ];
 
+/**
+ * 音声認識がカタカナや同音の別の字で書いてくる言葉を、想定問答の書き方に寄せる。
+ * 想定問答は英字（Supabase）で書かれ、文字起こしはカタカナ（スーパーベース）で来ることが多い。
+ */
+const READINGS: [RegExp, string][] = [
+  [/事故紹介/g, "自己紹介"],
+  [/天職/g, "転職"],
+  [/スーパーベース/g, "supabase"],
+  [/ジャバスクリプト/g, "javascript"],
+  [/ジャバ/g, "java"],
+  [/パイソン/g, "python"],
+  [/リアクト/g, "react"],
+  [/タイプスクリプト/g, "typescript"],
+  [/セールスフォース/g, "salesforce"],
+  [/ワードプレス/g, "wordpress"],
+  [/ギットハブ/g, "github"],
+  [/ギット/g, "git"],
+];
+
 export function normalizeForMatch(text: string): string {
   let result = text.normalize("NFKC").toLowerCase();
+  for (const [pattern, replacement] of READINGS) result = result.replace(pattern, replacement);
   result = result.replace(/[\s　]+/g, "");
   // 「〇〇さんの」「〇〇さんは」（面接官が名前で呼ぶとき）は質問の中身ではないので落とす。
   result = result.replace(/[一-龥々ァ-ヶー]{1,6}さん(?:の|は|が)/g, "");
@@ -178,9 +226,11 @@ export function similarity(a: string, b: string): number {
   for (const gram of ga) if (gb.has(gram)) shared += 1;
   const dice = (2 * shared) / (ga.size + gb.size);
   // 面接官の発言は前置きが付いて長くなりがち。用意した言い方がほぼ丸ごと入っていれば近いとみなす。
-  const [shortSet, shortText] = ga.size <= gb.size ? [ga, na] : [gb, nb];
+  const [shortSet, shortText, longText] = ga.size <= gb.size ? [ga, na, nb] : [gb, nb, na];
   const coverage = shortText.length >= 4 ? shared / shortSet.size : 0;
-  return Math.max(dice, coverage * 0.9);
+  // 「リーダーの経験は」が「リーダー」まで縮むような短い言い方は、丸ごと入っていれば近いとみなす。
+  const contained = shortText.length >= 2 && longText.includes(shortText) ? 0.6 : 0;
+  return Math.max(dice, coverage * 0.9, contained);
 }
 
 /** 発言を文に分ける。前置きの文と、本題の文を別々に比べるため。 */
@@ -200,9 +250,10 @@ export interface QaMatch {
 
 /**
  * これ以上なら「用意した質問と同じ」とみなして、答えをすぐ出す。
- * 評価用の24問（言い換え12・想定外12）で決めた値（docs ではなく報告に残している）。
+ * 評価（言い換え20問・想定外23問）で、想定外の質問の最高点が 0.45 だったので、
+ * 取り違えを出さないよう少し上に置いた。ここで外れても、1段目の AI が番号を返せば用意した答えを出す。
  */
-export const MATCH_THRESHOLD = 0.62;
+export const MATCH_THRESHOLD = 0.5;
 
 /** 来た質問にいちばん近い想定問答を返す。十分に近いものが無ければ null。 */
 export function matchQa(

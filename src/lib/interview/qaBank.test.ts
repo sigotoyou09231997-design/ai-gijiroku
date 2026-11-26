@@ -65,6 +65,18 @@ describe("手元での照合", () => {
     expect(matchQa("", pairs)).toBeNull();
   });
 
+  it("聞き方の枠（「〜の経験はありますか」）が同じだけでは当たらない", () => {
+    const bank = parseQaBank("## リーダーの経験はありますか\nまだありません。\n\n## なぜ Supabase を選んだのですか\n一人でも安全に運用できるからです。");
+    expect(matchQa("PHPの経験はありますか", bank)).toBeNull();
+    expect(matchQa("リーダーとか、マネジメントのご経験ってありますか", bank)?.index).toBe(0);
+  });
+
+  it("音声認識のカタカナ・同音の字（スーパーベース・事故紹介）も、想定問答の書き方に寄せて比べる", () => {
+    const bank = parseQaBank("## なぜ Supabase を選んだのですか\n一人でも安全に運用できるからです。");
+    expect(matchQa("スーパーベースを選んだ理由を聞かせてください", bank)?.index).toBe(0);
+    expect(normalizeForMatch("事故紹介をお願いします")).toBe(normalizeForMatch("自己紹介をお願いします"));
+  });
+
   it("比べる前に、言い回しの違いを落とす", () => {
     expect(normalizeForMatch("強みを教えてください。")).toBe(normalizeForMatch("強みを、お聞かせください"));
     expect(similarity("自己紹介", "自己紹介")).toBe(1);

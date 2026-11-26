@@ -43,6 +43,13 @@ describe("面接の回答の読み取り", () => {
     ]);
   });
 
+  it("印は行まるごとで読む（書き崩れた @ の行は印にしない）", () => {
+    const parsed = parseAnswer("@経歴外 — いいえ、これは使わない\n@なしではない\n結論：はい。\n");
+    expect(parsed.noExperience).toBe(false);
+    expect(parsed.skip).toBe(false);
+    expect(parsed.lines).toEqual([{ label: "結論", text: "はい。" }]);
+  });
+
   it("札の無い行もそのまま本文として出す", () => {
     const parsed = parseAnswer("経験はありません。");
     expect(parsed.lines).toEqual([{ text: "経験はありません。" }]);
