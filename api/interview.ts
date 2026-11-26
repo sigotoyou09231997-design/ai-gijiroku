@@ -33,8 +33,6 @@ type Stage = "quick" | "full" | "warm";
  */
 const DEFAULT_FULL_MODEL: FullModelKey = "fable";
 const DEFAULT_EFFORT: Effort = "low";
-/** 1段目（Haiku）に考える段階を持たせるか。評価で決める。 */
-const DEFAULT_QUICK_THINK = false;
 
 /** 材料1欄の上限（文字）。画面側の上限と揃える。 */
 const MATERIAL_LIMIT = 30_000;
@@ -99,7 +97,6 @@ interface InterviewInput {
   model: FullModelKey;
   effort: Effort;
   fast: boolean;
-  quickThink: boolean;
 }
 
 type ParseResult = { ok: true; input: InterviewInput } | { ok: false; status: number; message: string };
@@ -124,7 +121,6 @@ function parseInterviewBody(raw: unknown): ParseResult {
     model: body.model === "fable" ? "fable" : body.model === "opus" ? "opus" : DEFAULT_FULL_MODEL,
     effort: body.effort === "low" || body.effort === "medium" || body.effort === "high" ? body.effort : DEFAULT_EFFORT,
     fast: body.fast === true,
-    quickThink: typeof body.quickThink === "boolean" ? body.quickThink : DEFAULT_QUICK_THINK,
   };
   for (const [name, value] of [
     ["経歴", input.profile],
@@ -229,12 +225,13 @@ async function runInterview(client: Anthropic, input: InterviewInput, emit: Emit
 
   let final: { model: string; stop_reason: string | null; usage: Anthropic.Usage | Anthropic.Beta.BetaUsage };
   if (input.stage === "quick") {
-    // Haiku 5.5 は effort が high 以下なら考える段階を省ける（省くと最初の1文が一番早い）。
+    // Haiku 5.5 は effort が high 以下なら考える段階を省ける。最初の1文を一番早く出すため省く
+    // （評価で考える段階を持たせても、作り話は減らず速さも変わらなかった）。
     const stream = client.messages.stream(
       {
         model: QUICK_MODEL,
-        max_tokens: input.quickThink ? 2_000 : 400,
-        thinking: input.quickThink ? { type: "adaptive" } : { type: "disabled" },
+        max_tokens: 400,
+        thinking: { type: "disabled" },
         output_config: { effort: "low" },
         system,
         messages,
@@ -297,7 +294,7 @@ async function warmInterview(client: Anthropic, input: InterviewInput): Promise<
     client.messages.create({
       model: QUICK_MODEL,
       max_tokens: 0,
-      thinking: input.quickThink ? { type: "adaptive" } : { type: "disabled" },
+      thinking: { type: "disabled" },
       output_config: { effort: "low" },
       system: buildSystem("quick", input),
       messages,

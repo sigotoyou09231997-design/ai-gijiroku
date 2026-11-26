@@ -8,7 +8,7 @@ import {
   type InterviewStage,
 } from "../lib/interview/client";
 import { matchQa, parseQaBank, serializeQaBank, type QaMatch, type QaPair } from "../lib/interview/qaBank";
-import { answerPlainText, parseAnswer, type ParsedAnswer } from "../lib/interview/protocol";
+import { answerPlainText, parseAnswer, type AnswerLine, type ParsedAnswer } from "../lib/interview/protocol";
 import { extractSpeechPhrases } from "../lib/interview/phrases";
 import { loadMaterials, loadPrefs, type InterviewMaterials, type InterviewPrefs } from "../lib/interview/settings";
 import { TurnTracker, type FireRequest } from "../lib/interview/trigger";
@@ -53,6 +53,12 @@ export interface InterviewCard {
 export interface CardView extends InterviewCard {
   quickParsed: ParsedAnswer;
   fullParsed: ParsedAnswer;
+  /**
+   * 1段目（速報）のうち、画面に出してよい行。
+   * 速報は想定問答を土台にできたとき（@想定 が1以上）だけ出す。評価で、想定外の質問への速報は
+   * 12問中2〜4問で経歴に無いことを足していた（土台がある質問では36問とも経歴どおり）。
+   */
+  quickLines: AnswerLine[];
   /** 画面に出すか（質問ではないと判断されたものは出さない）。 */
   visible: boolean;
   /** 土台にした想定問答（AI の判断があればそちら、無ければ手元の照合）。 */
@@ -95,7 +101,9 @@ export function viewCard(card: InterviewCard, pairs: QaPair[]): CardView {
   const quickParsed = parseAnswer(card.quick.text, card.quick.status === "done");
   const fullParsed = parseAnswer(card.full.text, card.full.status === "done");
   const fullHasContent = fullParsed.lines.length > 0;
-  const quickHasContent = !quickParsed.skip && quickParsed.lines.length > 0;
+  const quickGrounded = !quickParsed.skip && quickParsed.qaRef !== undefined && pairs[quickParsed.qaRef - 1] !== undefined;
+  const quickLines = quickGrounded ? quickParsed.lines : [];
+  const quickHasContent = quickLines.length > 0;
   // 2段目（正確な方）が「質問ではない」と言ったら、1段目や手元の照合より優先して出さない。
   const fullSaysSkip = fullParsed.skip;
   const visible = !fullSaysSkip && (fullHasContent || quickHasContent || card.local !== null);
@@ -112,6 +120,7 @@ export function viewCard(card: InterviewCard, pairs: QaPair[]): CardView {
     ...card,
     quickParsed,
     fullParsed,
+    quickLines,
     visible,
     qa,
     noExperience: fullHasContent ? fullParsed.noExperience : quickParsed.noExperience,
@@ -372,7 +381,9 @@ export function useInterviewAssist(enabled: boolean): InterviewAssist {
         question: card.fullParsed.title || card.question,
         qaRef: card.qa ? card.qa.index + 1 : undefined,
         noExperience: card.noExperience || undefined,
-        answer: answerPlainText(card.fullParsed.lines.length > 0 ? card.fullParsed : card.quickParsed),
+        answer: answerPlainText(
+          card.fullParsed.lines.length > 0 ? card.fullParsed : { ...card.quickParsed, lines: card.quickLines },
+        ),
       }));
   }, []);
 
