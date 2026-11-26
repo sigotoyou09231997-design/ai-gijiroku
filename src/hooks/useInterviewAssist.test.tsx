@@ -127,9 +127,19 @@ describe("画面に出すかの決まり", () => {
     manual: false,
   };
 
-  it("何も届いていないうちは出さない。1段目の結論が来たら出す", () => {
+  it("何も届いていないうちは出さない。想定問答を土台にした速報が来たら出す", () => {
     expect(viewCard(base, pairs).visible).toBe(false);
-    expect(viewCard({ ...base, quick: { status: "done", text: "結論：はい。" } }, pairs).visible).toBe(true);
+    const grounded = viewCard({ ...base, quick: { status: "done", text: "@想定 2\n結論：粘り強さです。" } }, pairs);
+    expect(grounded.visible).toBe(true);
+    expect(grounded.quickLines).toEqual([{ label: "結論", text: "粘り強さです。" }]);
+  });
+
+  it("想定問答に無い質問の速報は出さない（評価で、経歴に無いことを足すことがあったため）", () => {
+    const card = viewCard({ ...base, quick: { status: "done", text: "@想定 0\n結論：一番大変だったのは〇〇の案件です。" } }, pairs);
+    expect(card.quickLines).toEqual([]);
+    expect(card.visible).toBe(false);
+    // 存在しない番号も土台にしない。
+    expect(viewCard({ ...base, quick: { status: "done", text: "@想定 9\n結論：はい。" } }, pairs).quickLines).toEqual([]);
   });
 
   it("1段目が「質問ではない」でも、2段目が答えれば出す（2段目の判断が勝つ）", () => {

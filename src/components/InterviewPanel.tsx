@@ -64,7 +64,7 @@ function CardBody({ card, big }: { card: CardView; big: boolean }) {
   const [showPrepared, setShowPrepared] = useState(true);
   const fullLines = card.fullParsed.lines;
   const useFull = fullLines.length > 0;
-  const lines = useFull ? fullLines : card.quickParsed.skip ? [] : card.quickParsed.lines;
+  const lines = useFull ? fullLines : card.quickLines;
   const fullRunning = card.full.status === "streaming";
   const quickRunning = card.quick.status === "streaming";
 
