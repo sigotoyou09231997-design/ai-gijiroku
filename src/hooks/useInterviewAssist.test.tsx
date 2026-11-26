@@ -105,6 +105,16 @@ describe("面接モードの回答の流れ", () => {
     expect(result.current.cards[1].full.status).toBe("aborted");
   });
 
+  it("リハーサルで続けて送った質問は、それぞれ別の質問として出す", async () => {
+    stubAnswers({ quick: "@想定 0\n結論：はい。", full: "@想定 0\n結論：はい。\n具体例：例。\nつなげ：活かします。" });
+    const { result } = renderHook(() => useInterviewAssist(true));
+    act(() => result.current.rehearse("強みを教えてください", "other"));
+    await waitFor(() => expect(result.current.cards[0]?.full.status).toBe("done"));
+    act(() => result.current.rehearse("Java の経験はありますか", "other"));
+    await waitFor(() => expect(result.current.cards[0]?.full.status).toBe("done"));
+    expect(result.current.cards.map((card) => card.question)).toEqual(["Java の経験はありますか", "強みを教えてください"]);
+  });
+
   it("面接モードでなければ、発言が来ても回さない", () => {
     const fetchMock = stubAnswers({ quick: "", full: "" });
     const { result } = renderHook(() => useInterviewAssist(false));

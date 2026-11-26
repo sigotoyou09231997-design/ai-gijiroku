@@ -136,6 +136,11 @@ export class TurnTracker {
     return { question, turnId: this.turn, continuation };
   }
 
+  /** 番を区切る（打ち込みのリハーサルでは、1回送るごとに別の質問として扱う）。 */
+  newTurn(): void {
+    this.closeTurn();
+  }
+
   private closeTurn(): void {
     this.finals = [];
     this.interim = "";

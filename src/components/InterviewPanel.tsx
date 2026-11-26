@@ -96,7 +96,8 @@ function CardBody({ card, big }: { card: CardView; big: boolean }) {
         )}
         {card.full.status === "done" && big && (
           <span className="ml-auto font-mono text-[10px] tabular-nums text-faint">
-            速報 {seconds(card.quick.firstMs)} ／ 全文 {seconds(card.full.totalMs)}
+            最初 {seconds(card.quickLines.length > 0 ? card.quick.firstMs : card.full.firstMs)} ／ 全文{" "}
+            {seconds(card.full.totalMs)}
           </span>
         )}
       </div>
