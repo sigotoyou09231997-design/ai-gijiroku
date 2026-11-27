@@ -27,9 +27,10 @@ export interface InterviewPrefs {
 /**
  * 既定の2段目。評価（24問）で Opus 5.5 / Fable 5.2 × low / medium の4通りを比べ、
  * 経歴への忠実さ・答えになっている率はどれも同じだったので、全文が一番速く出た Fable 5.2 の low にした。
+ * 速いモードは料金が2倍なので、2026-11-27 から既定はオフ（本人の希望）。設定でオンにした時だけ使う。
  * サーバー側の既定（api/interview.ts）と揃える。
  */
-export const DEFAULT_PREFS: InterviewPrefs = { fullModel: "fable", effort: "low", fast: true };
+export const DEFAULT_PREFS: InterviewPrefs = { fullModel: "fable", effort: "low", fast: false };
 
 export const FULL_MODEL_LABELS: Record<FullModelChoice, string> = {
   opus: "Claude Opus 5.5",
@@ -49,7 +50,9 @@ const KEYS = {
   profile: "gijiroku.interview.profile",
   company: "gijiroku.interview.company",
   qaBank: "gijiroku.interview.qaBank",
-  prefs: "gijiroku.interview.prefs",
+  /** v2: 速いモードの既定をオフにした時に分けた。古い v1 の fast は引き継がない（前は既定でオンだったため）。 */
+  prefs: "gijiroku.interview.prefs.v2",
+  prefsV1: "gijiroku.interview.prefs",
 } as const;
 
 function read(key: string): string {
@@ -89,13 +92,16 @@ function isEffort(value: unknown): value is EffortChoice {
 
 export function loadPrefs(): InterviewPrefs {
   const raw = read(KEYS.prefs);
-  if (!raw) return { ...DEFAULT_PREFS };
+  const fromV1 = !raw;
+  const source = raw || read(KEYS.prefsV1);
+  if (!source) return { ...DEFAULT_PREFS };
   try {
-    const parsed = JSON.parse(raw) as Partial<InterviewPrefs>;
+    const parsed = JSON.parse(source) as Partial<InterviewPrefs>;
     return {
       fullModel: isFullModel(parsed.fullModel) ? parsed.fullModel : DEFAULT_PREFS.fullModel,
       effort: isEffort(parsed.effort) ? parsed.effort : DEFAULT_PREFS.effort,
-      fast: typeof parsed.fast === "boolean" ? parsed.fast : DEFAULT_PREFS.fast,
+      // v1 の fast は「既定でオン」だった時代の値なので使わない。
+      fast: !fromV1 && typeof parsed.fast === "boolean" ? parsed.fast : DEFAULT_PREFS.fast,
     };
   } catch {
     return { ...DEFAULT_PREFS };

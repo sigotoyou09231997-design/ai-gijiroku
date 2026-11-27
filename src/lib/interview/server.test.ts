@@ -28,7 +28,8 @@ describe("面接モードのサーバー関数", () => {
     expect(tooLong.ok ? 0 : tooLong.status).toBe(413);
 
     const parsed = parseInterviewBody({ stage: "full", question: " 強みは？ ", model: "fable", effort: "medium" });
-    expect(parsed.ok && parsed.input).toMatchObject({ question: "強みは？", model: "fable", effort: "medium", fast: true });
+    // 速いモードは料金が2倍なので、指定が無ければ使わない。
+    expect(parsed.ok && parsed.input).toMatchObject({ question: "強みは？", model: "fable", effort: "medium", fast: false });
     // 知らない値は既定に倒す（勝手に高いモデル・深い考えにしない）。
     const fallback = parseInterviewBody({ stage: "full", question: "強みは", model: "x", effort: "max" });
     expect(fallback.ok && fallback.input.effort).not.toBe("max");
@@ -104,7 +105,7 @@ describe("面接モードのサーバー関数", () => {
     expect(params.speed).toBeUndefined();
   });
 
-  it("Fable 5.2 は既定で速いモード。上限に当たったら普通の速さで出し直す", async () => {
+  it("Fable 5.2 は速いモードを頼まれた時だけ使う。上限に当たったら普通の速さで出し直す", async () => {
     const calls: Record<string, unknown>[] = [];
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const stream = vi.fn((params: Record<string, unknown>) => {
@@ -122,7 +123,7 @@ describe("面接モードのサーバー関数", () => {
     });
     const client = { messages: { stream: vi.fn() }, beta: { messages: { stream } } };
     const events: Record<string, unknown>[] = [];
-    const parsed = parseInterviewBody({ stage: "full", question: "強みは" });
+    const parsed = parseInterviewBody({ stage: "full", question: "強みは", fast: true });
     if (!parsed.ok) throw new Error("parse failed");
     expect(parsed.input).toMatchObject({ model: "fable", effort: "low", fast: true });
     await runInterview(client as never, parsed.input, (event) => events.push(event), new AbortController().signal);

@@ -35,9 +35,10 @@ const DEFAULT_FULL_MODEL: FullModelKey = "fable";
 const DEFAULT_EFFORT: Effort = "low";
 /**
  * Fable 5.2 の速いモード（同じモデルで出力が速い・料金は2倍）。評価で、全文が出るまでの中央が 2.9 → 1.5 秒、
- * 一番遅かった質問が 9.6 → 4.8 秒になったので既定で使う。Opus 5.5 との組み合わせは試していないので Fable だけに付ける。
+ * 一番遅かった質問が 9.6 → 4.8 秒になった。2026-11-27 に本人の希望（料金を抑える）で既定は普通の速さに戻した。
+ * 画面の設定でオンにした時だけ使う。Opus 5.5 との組み合わせは試していないので Fable だけに付ける。
  */
-const DEFAULT_FAST = true;
+const DEFAULT_FAST = false;
 
 /** 材料1欄の上限（文字）。画面側の上限と揃える。 */
 const MATERIAL_LIMIT = 30_000;
